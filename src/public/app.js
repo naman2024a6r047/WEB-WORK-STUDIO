@@ -4173,24 +4173,17 @@ CENTRAL_HMAC_SECRET=${res.data.hmacSecret}`;
           });
 
           closeModal('modal-remote-command');
-          showToast(res.message, 'success');
+          showToast(res.message, res.deliveredLive ? 'success' : 'info');
 
-          // Simulate immediate execution for smooth demo
-          setTimeout(async () => {
-            await api('/remote-control/simulate-execution', {
-              method: 'POST',
-              body: JSON.stringify({ command_id: res.data.commandId })
-            });
-            showToast(`Command ${res.data.commandId} acknowledged by school ERP connector.`, 'success');
-            await loadInitialData();
-            if (state.activeTab === 'remote-controls') {
-              loadCommandsQueue();
-            } else if (state.activeTab === 'school-profile') {
-              renderSchoolProfile(schoolId);
-            } else {
-              renderCurrentTab();
-            }
-          }, 600);
+          // Refresh UI immediately with live synchronized state
+          await loadInitialData();
+          if (state.activeTab === 'remote-controls') {
+            loadCommandsQueue();
+          } else if (state.activeTab === 'school-profile') {
+            renderSchoolProfile(schoolId);
+          } else {
+            renderCurrentTab();
+          }
 
         } catch (err) {
           showToast(err.message, 'error');
