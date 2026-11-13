@@ -331,6 +331,9 @@ async function probeLiveSchoolErp({ erpUrl, schoolId, apiKey, hmacSecret, school
     };
   }
 
+  const baseUrl = `${parsedUrl.protocol}//${parsedUrl.host}`;
+  const baseWithoutApi = cleanUrl.replace(/\/api(\/v1)?(\/connector)?\/?$/i, '');
+
   const hasSpecificPath = parsedUrl.pathname && parsedUrl.pathname !== '/' && (
     parsedUrl.pathname.includes('/census') ||
     parsedUrl.pathname.includes('/metrics') ||
@@ -338,34 +341,51 @@ async function probeLiveSchoolErp({ erpUrl, schoolId, apiKey, hmacSecret, school
     parsedUrl.pathname.includes('/students')
   );
 
+  const approvalPayload = {
+    school_id: schoolId,
+    api_key: apiKey,
+    hmac_secret: hmacSecret,
+    action: 'REQUEST_DATA_ACCESS_APPROVAL',
+    requested_scopes: ['census', 'faculty', 'attendance', 'finance', 'telemetry'],
+    central_url: 'https://wws.ktwr.in',
+    requester: 'Central ERP Command (https://wws.ktwr.in)',
+    timestamp: new Date().toISOString()
+  };
+
   const candidates = [];
   if (hasSpecificPath) {
+    candidates.push({ url: cleanUrl, method: 'POST', body: approvalPayload });
     candidates.push({ url: cleanUrl, method: 'GET' });
-    candidates.push({ url: cleanUrl, method: 'POST', body: { school_id: schoolId } });
   } else {
+    // 1. Standard Central Connector approval request endpoint
     candidates.push({
-      url: `${cleanUrl}/api/v1/connector/approval-request`,
+      url: `${baseWithoutApi}/api/v1/connector/approval-request`,
       method: 'POST',
-      body: {
-        school_id: schoolId,
-        api_key: apiKey,
-        hmac_secret: hmacSecret,
-        action: 'REQUEST_DATA_ACCESS_APPROVAL',
-        requested_scopes: ['census', 'faculty', 'attendance', 'finance', 'telemetry'],
-        timestamp: new Date().toISOString()
-      }
+      body: approvalPayload
     });
+    // 2. Direct base approval request
     candidates.push({
-      url: `${cleanUrl}/api/v1/connector/census?schoolId=${encodeURIComponent(schoolId || '')}`,
+      url: `${baseUrl}/api/v1/connector/approval-request`,
+      method: 'POST',
+      body: approvalPayload
+    });
+    // 3. Central Webhook / approve endpoint
+    candidates.push({
+      url: `${baseWithoutApi}/api/central/approve`,
+      method: 'POST',
+      body: approvalPayload
+    });
+    // 4. Live Census GET endpoints
+    candidates.push({
+      url: `${baseWithoutApi}/api/v1/connector/census?schoolId=${encodeURIComponent(schoolId || '')}`,
       method: 'GET'
     });
     candidates.push({
-      url: `${cleanUrl}/api/v1/connector/census`,
-      method: 'POST',
-      body: { school_id: schoolId }
+      url: `${baseUrl}/api/v1/connector/census?schoolId=${encodeURIComponent(schoolId || '')}`,
+      method: 'GET'
     });
     candidates.push({
-      url: `${cleanUrl}/api/connector/census?schoolId=${encodeURIComponent(schoolId || '')}`,
+      url: `${baseWithoutApi}/api/connector/census?schoolId=${encodeURIComponent(schoolId || '')}`,
       method: 'GET'
     });
   }
@@ -380,13 +400,18 @@ async function probeLiveSchoolErp({ erpUrl, schoolId, apiKey, hmacSecret, school
       const headers = {
         'Accept': 'application/json',
         'User-Agent': 'Central-ERP-Command/2.4.0',
-        'X-Central-School-Id': schoolId || ''
+        'X-Central-School-Id': schoolId || '',
+        'X-Central-Url': 'https://wws.ktwr.in'
       };
-      if (apiKey) headers['X-Central-Command-Key'] = apiKey;
+      if (apiKey) {
+        headers['X-Central-Command-Key'] = apiKey;
+        headers['X-Api-Key'] = apiKey;
+      }
 
       const fetchOptions = {
         method: candidate.method,
         headers,
+        redirect: 'follow',
         signal: controller.signal
       };
 
@@ -545,11 +570,13 @@ router.post('/send-approval-request', authenticateToken, async (req, res) => {
       return res.json({
         success: true,
         approvalStatus: 'APPROVED',
-        message: `Successfully connected to School ERP at ${data.erpUrl}! Verified live census: ${data.totalStudents.toLocaleString()} students, ${data.teachers} teachers.`,
+        message: `Approval request dispatched and successfully received by School ERP at ${data.erpUrl}! Verified live census: ${data.totalStudents.toLocaleString()} students, ${data.teachers} teachers.`,
+        receivedByErp: true,
         data: {
           ...data,
+          receivedByErp: true,
           approvalToken,
-          approvalStatus: 'APPROVED',
+          approvalStatus: data.approvalStatus || 'APPROVED',
           approvedAt: new Date().toISOString()
         }
       });
