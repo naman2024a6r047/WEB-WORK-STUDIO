@@ -346,6 +346,33 @@
                 </label>
               </div>
             </div>
+
+            <!-- Real Data Handshake Error Panel -->
+            <div id="erp-probe-error" style="display: none; margin-top: 0.9rem; padding: 0.95rem; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.35); border-radius: 6px; font-size: 0.825rem;">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.5rem;">
+                <div style="color: #ef4444; font-weight: 700;">
+                  <i class="fa-solid fa-triangle-exclamation"></i> Could Not Fetch Real Data from School ERP
+                </div>
+                <span class="badge badge-suspended" style="font-size: 0.68rem;">CONNECTION FAILED</span>
+              </div>
+              <div id="erp-probe-error-msg" style="color: var(--text-main); margin-bottom: 0.65rem; line-height: 1.45; font-size: 0.8rem; background: var(--bg-card); padding: 0.6rem 0.75rem; border-radius: 4px; border: 1px solid var(--border-main); white-space: pre-wrap;">
+                <!-- Exact diagnostic error details -->
+              </div>
+              <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                <strong>Troubleshooting Guide:</strong>
+                <ul style="margin: 0.35rem 0 0 1.1rem; padding: 0; line-height: 1.5;">
+                  <li>Verify that the School ERP Base URL is correct and starts with <code>https://</code> or <code>http://</code>.</li>
+                  <li>Ensure the School ERP web server is online, running, and accessible over the internet.</li>
+                  <li>Verify that the School ERP provides a connector endpoint (<code>/api/v1/connector/approval-request</code> or <code>/api/v1/connector/census</code>).</li>
+                  <li>Check that any web application firewall (Cloudflare, hosting WAF) permits incoming requests.</li>
+                </ul>
+              </div>
+              <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-use-simulated-demo" style="font-size: 0.75rem; border-color: rgba(239,68,68,0.4);">
+                  <i class="fa-solid fa-flask"></i> Continue with Demo / Simulated Census for Testing
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- 3. School Details & Administration Contacts -->

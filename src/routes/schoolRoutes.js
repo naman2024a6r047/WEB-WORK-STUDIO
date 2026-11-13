@@ -241,10 +241,283 @@ router.get('/generate-credentials', authenticateToken, (req, res) => {
   }
 });
 
+// ============================================================================
+// School ERP Live Probe & Census Normalization Helpers
+// ============================================================================
+
+/**
+ * Normalizes census data from disparate school ERP payloads
+ */
+function extractCensusFromPayload(data) {
+  if (!data || typeof data !== 'object') return null;
+
+  // 1. Nested connector SDK format (student_statistics / teacher_statistics)
+  if (data.student_statistics) {
+    const s = data.student_statistics;
+    const t = data.teacher_statistics || {};
+    const o = data.operational_statistics || {};
+    const total = parseInt(s.total_students ?? s.totalStudents ?? 0, 10);
+    return {
+      totalStudents: total,
+      activeStudents: parseInt(s.active_students ?? s.activeStudents ?? total, 10),
+      teachers: parseInt(t.total_teachers ?? t.teachers ?? 0, 10),
+      staff: parseInt(t.non_teaching_staff ?? t.staff ?? 0, 10),
+      attendanceRate: parseFloat(o.attendance_rate_pct ?? o.attendanceRate ?? 95.0),
+      classDistribution: s.class_distribution || s.classDistribution || {
+        "Grades 1-5": Math.round(total * 0.4),
+        "Grades 6-8": Math.round(total * 0.3),
+        "Grades 9-12": Math.round(total * 0.3)
+      }
+    };
+  }
+
+  // 2. Flat format or simple JSON object
+  const total = data.totalStudents ?? data.total_students ?? data.student_count ?? data.students;
+  if (total !== undefined && total !== null && !isNaN(parseInt(total, 10))) {
+    const totalStudents = parseInt(total, 10);
+    const activeStudents = parseInt(data.activeStudents ?? data.active_students ?? totalStudents, 10);
+    const teachers = parseInt(data.teachers ?? data.total_teachers ?? data.faculty ?? Math.max(12, Math.round(totalStudents / 22)), 10);
+    const staff = parseInt(data.staff ?? data.non_teaching_staff ?? Math.max(4, Math.round(teachers / 3)), 10);
+    const attendanceRate = parseFloat(data.attendanceRate ?? data.attendance_rate_pct ?? data.attendance ?? 95.0);
+    const classDistribution = data.classDistribution || data.class_distribution || {
+      "Primary Wing (1-5)": Math.round(totalStudents * 0.4),
+      "Middle Wing (6-8)": Math.round(totalStudents * 0.3),
+      "Secondary Wing (9-12)": Math.round(totalStudents * 0.3)
+    };
+    return {
+      totalStudents,
+      activeStudents,
+      teachers,
+      staff,
+      attendanceRate,
+      classDistribution
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Diagnostic HTTP probe to query real live data from a School ERP.
+ * Tries multiple common candidate endpoints and returns structured diagnostics on failure.
+ */
+async function probeLiveSchoolErp({ erpUrl, schoolId, apiKey, hmacSecret, schoolName, timeoutMs = 7000 }) {
+  if (!erpUrl || !erpUrl.trim()) {
+    return {
+      success: false,
+      error: 'School ERP Base URL is empty.',
+      diagnostic: { problem: 'Missing ERP URL', suggestion: 'Please enter the URL of the school ERP.' }
+    };
+  }
+
+  let cleanUrl = erpUrl.trim();
+  if (!/^https?:\/\//i.test(cleanUrl)) {
+    cleanUrl = `https://${cleanUrl}`;
+  }
+  cleanUrl = cleanUrl.replace(/\/+$/, '');
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(cleanUrl);
+  } catch (err) {
+    return {
+      success: false,
+      error: `Invalid URL format "${erpUrl}": ${err.message}`,
+      diagnostic: {
+        attemptedUrl: cleanUrl,
+        problem: 'URL syntax error',
+        suggestion: 'Ensure the URL starts with https:// or http:// and has a valid hostname (e.g. https://myschool.com).'
+      }
+    };
+  }
+
+  const hasSpecificPath = parsedUrl.pathname && parsedUrl.pathname !== '/' && (
+    parsedUrl.pathname.includes('/census') ||
+    parsedUrl.pathname.includes('/metrics') ||
+    parsedUrl.pathname.includes('/approval') ||
+    parsedUrl.pathname.includes('/students')
+  );
+
+  const candidates = [];
+  if (hasSpecificPath) {
+    candidates.push({ url: cleanUrl, method: 'GET' });
+    candidates.push({ url: cleanUrl, method: 'POST', body: { school_id: schoolId } });
+  } else {
+    candidates.push({
+      url: `${cleanUrl}/api/v1/connector/approval-request`,
+      method: 'POST',
+      body: {
+        school_id: schoolId,
+        api_key: apiKey,
+        hmac_secret: hmacSecret,
+        action: 'REQUEST_DATA_ACCESS_APPROVAL',
+        requested_scopes: ['census', 'faculty', 'attendance', 'finance', 'telemetry'],
+        timestamp: new Date().toISOString()
+      }
+    });
+    candidates.push({
+      url: `${cleanUrl}/api/v1/connector/census?schoolId=${encodeURIComponent(schoolId || '')}`,
+      method: 'GET'
+    });
+    candidates.push({
+      url: `${cleanUrl}/api/v1/connector/census`,
+      method: 'POST',
+      body: { school_id: schoolId }
+    });
+    candidates.push({
+      url: `${cleanUrl}/api/connector/census?schoolId=${encodeURIComponent(schoolId || '')}`,
+      method: 'GET'
+    });
+  }
+
+  const errorsEncountered = [];
+
+  for (const candidate of candidates) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      const headers = {
+        'Accept': 'application/json',
+        'User-Agent': 'Central-ERP-Command/2.4.0',
+        'X-Central-School-Id': schoolId || ''
+      };
+      if (apiKey) headers['X-Central-Command-Key'] = apiKey;
+
+      const fetchOptions = {
+        method: candidate.method,
+        headers,
+        signal: controller.signal
+      };
+
+      if (candidate.method === 'POST' && candidate.body) {
+        headers['Content-Type'] = 'application/json';
+        fetchOptions.body = JSON.stringify(candidate.body);
+      }
+
+      const res = await fetch(candidate.url, fetchOptions);
+      clearTimeout(timeoutId);
+
+      const status = res.status;
+      const contentType = res.headers.get('content-type') || '';
+
+      if (!res.ok) {
+        let errSnippet = '';
+        try {
+          const text = await res.text();
+          errSnippet = text.slice(0, 200).replace(/\s+/g, ' ');
+        } catch {}
+        errorsEncountered.push(`HTTP ${status} (${res.statusText}) at ${candidate.url}${errSnippet ? ' -> ' + errSnippet : ''}`);
+        continue;
+      }
+
+      if (!contentType.includes('application/json')) {
+        let textSnippet = '';
+        try {
+          const text = await res.text();
+          textSnippet = text.slice(0, 150).replace(/\s+/g, ' ');
+        } catch {}
+        errorsEncountered.push(`Non-JSON response (received ${contentType || 'HTML/Text'}) at ${candidate.url}. Preview: "${textSnippet}"`);
+        continue;
+      }
+
+      const json = await res.json();
+      const payload = json.data || json;
+
+      const normalized = extractCensusFromPayload(payload);
+      if (normalized) {
+        return {
+          success: true,
+          endpointUsed: candidate.url,
+          data: {
+            ...normalized,
+            schoolId: schoolId,
+            erpUrl: cleanUrl,
+            source: 'LIVE_REMOTE_ERP',
+            verified: true,
+            fetchedAt: new Date().toISOString()
+          }
+        };
+      } else {
+        errorsEncountered.push(`JSON response received at ${candidate.url}, but no student census fields found. Received keys: [${Object.keys(payload || {}).join(', ')}]`);
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        errorsEncountered.push(`Connection timed out (${Math.round(timeoutMs / 1000)}s) at ${candidate.url}. Remote server did not respond.`);
+      } else if (err.code === 'ENOTFOUND') {
+        errorsEncountered.push(`DNS lookup failed for "${parsedUrl.hostname}". Domain or host does not exist.`);
+      } else if (err.code === 'ECONNREFUSED') {
+        errorsEncountered.push(`Connection refused at ${candidate.url}. Remote server is offline or port blocked.`);
+      } else if (err.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' || (err.message && err.message.includes('certificate'))) {
+        errorsEncountered.push(`SSL certificate error at ${candidate.url}: ${err.message}`);
+      } else {
+        errorsEncountered.push(`Network error at ${candidate.url}: ${err.message}`);
+      }
+    }
+  }
+
+  const primaryError = errorsEncountered[0] || 'Unknown connection error';
+  return {
+    success: false,
+    error: primaryError,
+    diagnostic: {
+      attemptedUrl: cleanUrl,
+      host: parsedUrl.hostname,
+      endpointsTested: candidates.map(c => `${c.method} ${c.url}`),
+      errors: errorsEncountered,
+      suggestions: [
+        `Verify that the School ERP website at "${cleanUrl}" is running and publicly reachable.`,
+        `Ensure the School ERP exposes a Central Command connector endpoint (/api/v1/connector/approval-request or /api/v1/connector/census).`,
+        `Check if firewall, Cloudflare, or hosting rules on "${parsedUrl.hostname}" are blocking incoming requests.`,
+        `If your ERP is still in staging/development, you can use "Continue with Demo / Simulated Census for Testing".`
+      ]
+    }
+  };
+}
+
+/**
+ * Deterministic simulation generator for offline/demo/testing mode
+ */
+function generateSimulatedCensus(schoolId, erpUrl) {
+  let hash = 0;
+  for (let i = 0; i < schoolId.length; i++) {
+    hash = (hash << 5) - hash + schoolId.charCodeAt(i);
+    hash |= 0;
+  }
+  const positiveHash = Math.abs(hash);
+  const studentCount = 420 + (positiveHash % 880);
+  const activeCount = Math.round(studentCount * 0.98);
+  const teacherCount = Math.max(16, Math.round(studentCount / 20));
+  const staffCount = Math.max(6, Math.round(teacherCount / 3));
+  const attendance = (93 + (positiveHash % 50) / 10).toFixed(1);
+
+  return {
+    schoolId,
+    erpUrl,
+    approvalStatus: 'APPROVED',
+    approvalToken: `appr_ack_${crypto.randomBytes(12).toString('hex')}`,
+    approvedAt: new Date().toISOString(),
+    verified: false,
+    source: 'OFFLINE_DEMO_SIMULATION',
+    isSimulated: true,
+    totalStudents: studentCount,
+    activeStudents: activeCount,
+    teachers: teacherCount,
+    staff: staffCount,
+    attendanceRate: parseFloat(attendance),
+    classDistribution: {
+      "Primary Wing (Grades 1-5)": Math.round(studentCount * 0.38),
+      "Middle Wing (Grades 6-8)": Math.round(studentCount * 0.28),
+      "Secondary Wing (Grades 9-10)": Math.round(studentCount * 0.20),
+      "Senior Secondary (Grades 11-12)": Math.round(studentCount * 0.14)
+    }
+  };
+}
+
 // POST /api/v1/schools/send-approval-request - Dispatch approval request to school ERP and fetch real data
 router.post('/send-approval-request', authenticateToken, async (req, res) => {
   try {
-    const { school_id, erp_url, api_key, hmac_secret, school_name } = req.body;
+    const { school_id, erp_url, api_key, hmac_secret, school_name, allow_offline_demo } = req.body;
 
     if (!school_id || !school_id.trim()) {
       return res.status(400).json({ success: false, error: 'School ID is required to send approval request.' });
@@ -254,115 +527,53 @@ router.post('/send-approval-request', authenticateToken, async (req, res) => {
     }
 
     const cleanSchoolId = school_id.trim().toUpperCase();
-    const cleanUrl = erp_url.trim().replace(/\/+$/, '');
     const cleanApiKey = api_key ? api_key.trim() : `cc_live_pk_${crypto.randomBytes(12).toString('hex')}`;
     const cleanHmacSecret = hmac_secret ? hmac_secret.trim() : `cc_sec_live_${crypto.randomBytes(24).toString('hex')}`;
 
     // 1. Attempt live HTTP dispatch to remote school ERP connector
-    let liveResponse = null;
+    const probeResult = await probeLiveSchoolErp({
+      erpUrl: erp_url,
+      schoolId: cleanSchoolId,
+      apiKey: cleanApiKey,
+      hmacSecret: cleanHmacSecret,
+      schoolName
+    });
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-      const approvalUrl = `${cleanUrl}/api/v1/connector/approval-request`;
-      const probeRes = await fetch(approvalUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Central-Command-Key': cleanApiKey,
-          'X-Central-School-Id': cleanSchoolId
-        },
-        body: JSON.stringify({
-          school_id: cleanSchoolId,
-          api_key: cleanApiKey,
-          hmac_secret: cleanHmacSecret,
-          action: 'REQUEST_DATA_ACCESS_APPROVAL',
-          requested_scopes: ['census', 'faculty', 'attendance', 'finance', 'telemetry'],
-          timestamp: new Date().toISOString()
-        }),
-        signal: controller.signal
+    if (probeResult.success) {
+      const data = probeResult.data;
+      const approvalToken = `appr_ack_${crypto.randomBytes(12).toString('hex')}`;
+      return res.json({
+        success: true,
+        approvalStatus: 'APPROVED',
+        message: `Successfully connected to School ERP at ${data.erpUrl}! Verified live census: ${data.totalStudents.toLocaleString()} students, ${data.teachers} teachers.`,
+        data: {
+          ...data,
+          approvalToken,
+          approvalStatus: 'APPROVED',
+          approvedAt: new Date().toISOString()
+        }
       });
-      clearTimeout(timeoutId);
-
-      if (probeRes.ok) {
-        const json = await probeRes.json();
-        if (json && (json.totalStudents || json.total_students || json.data)) {
-          liveResponse = json.data || json;
-        }
-      }
-    } catch (err) {
-      // Live endpoint offline/unreachable; fallback to intelligent handshake simulator below
     }
 
-    // 2. Format verified census data (either from live ERP response or deterministic connector bridge)
-    let censusData;
-    const approvalToken = `appr_ack_${crypto.randomBytes(12).toString('hex')}`;
-    const approvedAt = new Date().toISOString();
-
-    if (liveResponse) {
-      censusData = {
-        schoolId: cleanSchoolId,
-        erpUrl: cleanUrl,
+    // 2. If live fetch failed, check if user requested offline demo simulation
+    if (allow_offline_demo) {
+      const demoData = generateSimulatedCensus(cleanSchoolId, erp_url);
+      return res.json({
+        success: true,
         approvalStatus: 'APPROVED',
-        approvalToken,
-        approvedAt,
-        verified: true,
-        source: 'LIVE_REMOTE_ERP',
-        totalStudents: liveResponse.totalStudents || liveResponse.total_students || 0,
-        activeStudents: liveResponse.activeStudents || liveResponse.active_students || 0,
-        teachers: liveResponse.teachers || liveResponse.total_teachers || 0,
-        staff: liveResponse.staff || liveResponse.non_teaching_staff || 0,
-        attendanceRate: liveResponse.attendanceRate || liveResponse.attendance_rate_pct || 95.0,
-        classDistribution: liveResponse.classDistribution || liveResponse.class_distribution || {
-          "Grade 1-5": Math.round((liveResponse.totalStudents || 500) * 0.4),
-          "Grade 6-8": Math.round((liveResponse.totalStudents || 500) * 0.3),
-          "Grade 9-12": Math.round((liveResponse.totalStudents || 500) * 0.3)
-        }
-      };
-    } else {
-      let hash = 0;
-      for (let i = 0; i < cleanSchoolId.length; i++) {
-        hash = (hash << 5) - hash + cleanSchoolId.charCodeAt(i);
-        hash |= 0;
-      }
-      const positiveHash = Math.abs(hash);
-      const studentCount = 420 + (positiveHash % 880);
-      const activeCount = Math.round(studentCount * 0.98);
-      const teacherCount = Math.max(16, Math.round(studentCount / 20));
-      const staffCount = Math.max(6, Math.round(teacherCount / 3));
-      const attendance = (93 + (positiveHash % 50) / 10).toFixed(1);
-
-      censusData = {
-        schoolId: cleanSchoolId,
-        erpUrl: cleanUrl,
-        approvalStatus: 'APPROVED',
-        approvalToken,
-        approvedAt,
-        verified: true,
-        source: 'REMOTE_ERP_CONNECTOR_HANDSHAKE',
-        totalStudents: studentCount,
-        activeStudents: activeCount,
-        teachers: teacherCount,
-        staff: staffCount,
-        attendanceRate: parseFloat(attendance),
-        classDistribution: {
-          "Primary Wing (Grades 1-5)": Math.round(studentCount * 0.38),
-          "Middle Wing (Grades 6-8)": Math.round(studentCount * 0.28),
-          "Secondary Wing (Grades 9-10)": Math.round(studentCount * 0.20),
-          "Senior Secondary (Grades 11-12)": Math.round(studentCount * 0.14)
-        }
-      };
+        isSimulated: true,
+        warning: `Could not connect to live School ERP (${probeResult.error}). Loaded simulated test census (${demoData.totalStudents} students).`,
+        message: `Loaded offline simulated census for testing (${demoData.totalStudents} students). Note: Real ERP connection failed: ${probeResult.error}`,
+        data: demoData,
+        diagnostic: probeResult.diagnostic
+      });
     }
 
-    res.json({
-      success: true,
-      approvalStatus: 'APPROVED',
-      approvalToken,
-      approvedAt,
-      message: `Approval request dispatched to ${cleanUrl}. Remote ERP administrator authorized data sharing for School ID: ${cleanSchoolId}! Real census verified.`,
-      data: censusData
+    // Return detailed, transparent error diagnostic
+    return res.status(502).json({
+      success: false,
+      error: `Could not fetch real data from School ERP: ${probeResult.error}`,
+      diagnostic: probeResult.diagnostic
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -372,7 +583,7 @@ router.post('/send-approval-request', authenticateToken, async (req, res) => {
 // POST /api/v1/schools/probe-remote-erp - Probe school ERP with School ID and handshake (alias for backward compatibility)
 router.post('/probe-remote-erp', authenticateToken, async (req, res) => {
   try {
-    const { remote_school_id, school_id, erp_url, auth_token, api_key, hmac_secret } = req.body;
+    const { remote_school_id, school_id, erp_url, api_key, hmac_secret, allow_offline_demo } = req.body;
     const targetId = remote_school_id || school_id;
 
     if (!targetId || !targetId.trim()) {
@@ -383,105 +594,50 @@ router.post('/probe-remote-erp', authenticateToken, async (req, res) => {
     }
 
     const cleanSchoolId = targetId.trim().toUpperCase();
-    const cleanUrl = erp_url.trim().replace(/\/+$/, '');
+    const probeResult = await probeLiveSchoolErp({
+      erpUrl: erp_url,
+      schoolId: cleanSchoolId,
+      apiKey,
+      hmacSecret
+    });
 
-    // 1. Attempt live HTTP probe to the school's ERP connector endpoint
-    let liveResponse = null;
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500);
-
-      const probeUrl = `${cleanUrl}/api/v1/connector/census?schoolId=${encodeURIComponent(cleanSchoolId)}`;
-      const headers = { 'Accept': 'application/json' };
-      if (auth_token) headers['Authorization'] = `Bearer ${auth_token.trim()}`;
-      if (api_key) headers['X-Central-Command-Key'] = api_key.trim();
-
-      const probeRes = await fetch(probeUrl, {
-        method: 'GET',
-        headers,
-        signal: controller.signal
+    if (probeResult.success) {
+      const data = probeResult.data;
+      const approvalToken = `appr_ack_${crypto.randomBytes(12).toString('hex')}`;
+      return res.json({
+        success: true,
+        approvalStatus: 'APPROVED',
+        message: `Connected to School ERP at ${data.erpUrl}. Verified live census: ${data.totalStudents.toLocaleString()} students.`,
+        data: {
+          ...data,
+          remoteSchoolId: cleanSchoolId,
+          approvalToken,
+          approvalStatus: 'APPROVED',
+          approvedAt: new Date().toISOString()
+        }
       });
-      clearTimeout(timeoutId);
-
-      if (probeRes.ok) {
-        const json = await probeRes.json();
-        if (json && (json.totalStudents || json.total_students || json.data)) {
-          liveResponse = json.data || json;
-        }
-      }
-    } catch (err) {
-      // Live endpoint offline/unreachable; fallback to intelligent handshake simulator below
     }
 
-    // 2. Format response: live data or deterministic simulated ERP census generator
-    let censusData;
-    const approvalToken = `appr_ack_${crypto.randomBytes(12).toString('hex')}`;
-    const approvedAt = new Date().toISOString();
-
-    if (liveResponse) {
-      censusData = {
-        schoolId: cleanSchoolId,
-        remoteSchoolId: cleanSchoolId,
-        erpUrl: cleanUrl,
+    if (allow_offline_demo) {
+      const demoData = generateSimulatedCensus(cleanSchoolId, erp_url);
+      return res.json({
+        success: true,
         approvalStatus: 'APPROVED',
-        approvalToken,
-        approvedAt,
-        verified: true,
-        source: 'LIVE_REMOTE_ERP',
-        totalStudents: liveResponse.totalStudents || liveResponse.total_students || 0,
-        activeStudents: liveResponse.activeStudents || liveResponse.active_students || 0,
-        teachers: liveResponse.teachers || liveResponse.total_teachers || 0,
-        staff: liveResponse.staff || liveResponse.non_teaching_staff || 0,
-        attendanceRate: liveResponse.attendanceRate || liveResponse.attendance_rate_pct || 95.0,
-        classDistribution: liveResponse.classDistribution || liveResponse.class_distribution || {
-          "Grade 1-5": Math.round((liveResponse.totalStudents || 500) * 0.4),
-          "Grade 6-8": Math.round((liveResponse.totalStudents || 500) * 0.3),
-          "Grade 9-12": Math.round((liveResponse.totalStudents || 500) * 0.3)
-        }
-      };
-    } else {
-      let hash = 0;
-      for (let i = 0; i < cleanSchoolId.length; i++) {
-        hash = (hash << 5) - hash + cleanSchoolId.charCodeAt(i);
-        hash |= 0;
-      }
-      const positiveHash = Math.abs(hash);
-      const studentCount = 420 + (positiveHash % 880);
-      const activeCount = Math.round(studentCount * 0.98);
-      const teacherCount = Math.max(16, Math.round(studentCount / 20));
-      const staffCount = Math.max(6, Math.round(teacherCount / 3));
-      const attendance = (93 + (positiveHash % 50) / 10).toFixed(1);
-
-      censusData = {
-        schoolId: cleanSchoolId,
-        remoteSchoolId: cleanSchoolId,
-        erpUrl: cleanUrl,
-        approvalStatus: 'APPROVED',
-        approvalToken,
-        approvedAt,
-        verified: true,
-        source: 'REMOTE_ERP_CONNECTOR_HANDSHAKE',
-        totalStudents: studentCount,
-        activeStudents: activeCount,
-        teachers: teacherCount,
-        staff: staffCount,
-        attendanceRate: parseFloat(attendance),
-        classDistribution: {
-          "Grade 1 to 5": Math.round(studentCount * 0.38),
-          "Grade 6 to 8": Math.round(studentCount * 0.28),
-          "Grade 9 & 10": Math.round(studentCount * 0.20),
-          "Grade 11 & 12": Math.round(studentCount * 0.14)
-        }
-      };
+        isSimulated: true,
+        warning: `Could not connect to live School ERP (${probeResult.error}). Loaded simulated test census.`,
+        message: `Loaded offline simulated census for testing (${demoData.totalStudents} students).`,
+        data: {
+          ...demoData,
+          remoteSchoolId: cleanSchoolId
+        },
+        diagnostic: probeResult.diagnostic
+      });
     }
 
-    res.json({
-      success: true,
-      approvalStatus: 'APPROVED',
-      approvalToken,
-      approvedAt,
-      message: `Connected to School ERP at ${cleanUrl}. Verified live census for School ID: ${cleanSchoolId}`,
-      data: censusData
+    return res.status(502).json({
+      success: false,
+      error: `Could not fetch real data from School ERP: ${probeResult.error}`,
+      diagnostic: probeResult.diagnostic
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -778,9 +934,124 @@ router.post('/batch/check-all-students', authenticateToken, (req, res) => {
   }
 });
 
-// POST /api/v1/schools/:id/check-students - Check latest students and recalculate amount to pay
-router.post('/:id/check-students', authenticateToken, (req, res) => {
+// POST /api/v1/schools/:id/sync-now - Synchronize real live census data directly from School ERP
+router.post('/:id/sync-now', authenticateToken, async (req, res) => {
   try {
+    const school = db.get('SELECT * FROM schools WHERE id = ?', req.params.id);
+    if (!school) {
+      return res.status(404).json({ success: false, error: 'School not found' });
+    }
+
+    if (!school.erp_url || !school.erp_url.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: `School "${school.name}" does not have a School ERP Base URL configured.`
+      });
+    }
+
+    const probeResult = await probeLiveSchoolErp({
+      erpUrl: school.erp_url,
+      schoolId: school.remote_school_id || school.code || school.id,
+      apiKey: school.api_key,
+      hmacSecret: school.hmac_secret,
+      schoolName: school.name
+    });
+
+    if (!probeResult.success) {
+      db.run("UPDATE schools SET health_status = 'OFFLINE', updated_at = datetime('now') WHERE id = ?", school.id);
+      return res.status(502).json({
+        success: false,
+        error: `Could not fetch live data from ERP (${school.erp_url}): ${probeResult.error}`,
+        diagnostic: probeResult.diagnostic
+      });
+    }
+
+    const data = probeResult.data;
+    const metricId = `met-live-${Date.now()}`;
+
+    // Store real live metric
+    db.run(
+      `INSERT INTO school_sync_metrics (
+        id, school_id, total_students, active_students, inactive_students,
+        total_teachers, active_teachers, inactive_teachers, non_teaching_staff,
+        attendance_rate_pct, sync_source, sync_timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'LIVE_MANUAL_SYNC', datetime('now'))`,
+      metricId, school.id,
+      data.totalStudents, data.activeStudents, Math.max(0, data.totalStudents - data.activeStudents),
+      data.teachers, data.teachers, 0, data.staff,
+      data.attendanceRate
+    );
+
+    const rec = automationEngine.reconcileSchoolStudentCensus(school.id);
+    db.run("UPDATE schools SET health_status = 'HEALTHY', last_sync_at = datetime('now'), updated_at = datetime('now') WHERE id = ?", school.id);
+
+    logAudit({
+      userId: req.user.id,
+      userEmail: req.user.email,
+      action: 'ERP_MANUAL_SYNC',
+      targetType: 'SCHOOL',
+      targetId: school.id,
+      details: { students: data.totalStudents, teachers: data.teachers, erpUrl: school.erp_url },
+      ip: req.ip
+    });
+
+    res.json({
+      success: true,
+      message: `Successfully synchronized live census from ${school.name}: ${data.totalStudents.toLocaleString()} students, ${data.teachers} teachers (${data.attendanceRate}% attendance).`,
+      data: {
+        schoolId: school.id,
+        schoolName: school.name,
+        metrics: data,
+        reconciliation: rec
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/v1/schools/:id/check-students - Check latest students from ERP (or last stored) and recalculate amount to pay
+router.post('/:id/check-students', authenticateToken, async (req, res) => {
+  try {
+    const school = db.get('SELECT * FROM schools WHERE id = ?', req.params.id);
+    if (!school) {
+      return res.status(404).json({ success: false, error: 'School not found' });
+    }
+
+    let liveCheckWarning = null;
+    let liveSuccess = false;
+
+    // 1. Attempt live check if erp_url exists
+    if (school.erp_url && school.erp_url.trim()) {
+      const probeResult = await probeLiveSchoolErp({
+        erpUrl: school.erp_url,
+        schoolId: school.remote_school_id || school.code || school.id,
+        apiKey: school.api_key,
+        hmacSecret: school.hmac_secret,
+        schoolName: school.name
+      });
+
+      if (probeResult.success) {
+        liveSuccess = true;
+        const data = probeResult.data;
+        const metricId = `met-chk-${Date.now()}`;
+        db.run(
+          `INSERT INTO school_sync_metrics (
+            id, school_id, total_students, active_students, inactive_students,
+            total_teachers, active_teachers, inactive_teachers, non_teaching_staff,
+            attendance_rate_pct, sync_source, sync_timestamp
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'LIVE_STUDENT_CHECK', datetime('now'))`,
+          metricId, school.id,
+          data.totalStudents, data.activeStudents, Math.max(0, data.totalStudents - data.activeStudents),
+          data.teachers, data.teachers, 0, data.staff,
+          data.attendanceRate
+        );
+        db.run("UPDATE schools SET health_status = 'HEALTHY', last_sync_at = datetime('now'), updated_at = datetime('now') WHERE id = ?", school.id);
+      } else {
+        liveCheckWarning = `Notice: Could not pull live data from School ERP (${school.erp_url}): ${probeResult.error}. Using last recorded census.`;
+      }
+    }
+
     const result = automationEngine.reconcileSchoolStudentCensus(req.params.id);
 
     logAudit({
@@ -789,14 +1060,17 @@ router.post('/:id/check-students', authenticateToken, (req, res) => {
       action: 'CHECK_LATEST_STUDENTS',
       targetType: 'SCHOOL',
       targetId: req.params.id,
-      details: result,
+      details: { ...result, liveCheckWarning, liveSuccess },
       ip: req.ip
     });
 
     res.json({
       success: true,
-      message: `Checked latest census for ${result.schoolName}: ${result.studentCount} students × ₹${result.pricePerStudent}/mo = ₹${result.calculatedAmount.toLocaleString()} to pay (${result.billingCycle}).`,
-      data: result
+      message: liveCheckWarning 
+        ? `${liveCheckWarning} Recalculated for ${result.studentCount} students × ₹${result.pricePerStudent}/mo = ₹${result.calculatedAmount.toLocaleString()} to pay.`
+        : `Verified latest live census for ${result.schoolName}: ${result.studentCount.toLocaleString()} students × ₹${result.pricePerStudent}/mo = ₹${result.calculatedAmount.toLocaleString()} to pay (${result.billingCycle}).`,
+      data: result,
+      warning: liveCheckWarning
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

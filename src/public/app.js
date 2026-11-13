@@ -1896,12 +1896,25 @@
         }
       });
 
-      document.getElementById('btn-profile-sync')?.addEventListener('click', () => {
-        showToast(`Requesting telemetry sync from ${school.name}...`, 'info');
-        setTimeout(() => {
-          showToast(`Census reconciled for ${school.name}. 0 discrepancies.`, 'success');
+      document.getElementById('btn-profile-sync')?.addEventListener('click', async () => {
+        const syncBtn = document.getElementById('btn-profile-sync');
+        if (syncBtn) {
+          syncBtn.disabled = true;
+          syncBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Syncing Live ERP...';
+        }
+        showToast(`Requesting live telemetry sync from ${school.name} (${school.erp_url || 'No URL'})...`, 'info');
+        try {
+          const syncRes = await api(`/schools/${school.id}/sync-now`, { method: 'POST' });
+          showToast(syncRes.message || `Live telemetry synchronized for ${school.name}!`, 'success');
           renderSchoolProfile(school.id);
-        }, 800);
+        } catch (e) {
+          showToast(`Sync Failed: ${e.message}`, 'error');
+        } finally {
+          if (syncBtn) {
+            syncBtn.disabled = false;
+            syncBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Sync Now';
+          }
+        }
       });
 
       document.getElementById('btn-rotate-keys')?.addEventListener('click', async () => {
@@ -3896,13 +3909,15 @@ for cmd in commands:
     // ------------------------------------------------------------------------
     // Send Approval Request & Get Real Data from School ERP
     // ------------------------------------------------------------------------
-    const handleSendApproval = async () => {
+    const handleSendApproval = async (allowDemo = false) => {
       const schoolId = document.getElementById('reg-school-id')?.value.trim();
       const erpUrl = document.getElementById('reg-erp-url')?.value.trim();
       const apiKey = document.getElementById('reg-api-key')?.value.trim();
       const hmacSecret = document.getElementById('reg-hmac-secret')?.value.trim();
       const schoolName = document.getElementById('reg-school-name')?.value.trim();
       const probeResult = document.getElementById('erp-probe-result');
+      const probeError = document.getElementById('erp-probe-error');
+      const probeErrorMsg = document.getElementById('erp-probe-error-msg');
       const probeBadge = document.getElementById('remote-probe-badge');
       const actionBtn = document.getElementById('btn-send-approval-request') || document.getElementById('btn-probe-erp');
 
@@ -3912,13 +3927,21 @@ for cmd in commands:
         return;
       }
 
+      if (probeResult) probeResult.style.display = 'none';
+      if (probeError) probeError.style.display = 'none';
+
       if (actionBtn) {
         actionBtn.disabled = true;
-        actionBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending Request & Waiting for Approval...';
+        actionBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Contacting School ERP...';
       }
 
       try {
-        showToast(`Dispatching authorization handshake & approval request to ${erpUrl}...`, 'info');
+        if (!allowDemo) {
+          showToast(`Connecting to ${erpUrl} to fetch real ERP census...`, 'info');
+        } else {
+          showToast(`Loading simulated census for testing...`, 'info');
+        }
+
         const res = await api('/schools/send-approval-request', {
           method: 'POST',
           body: JSON.stringify({
@@ -3926,23 +3949,36 @@ for cmd in commands:
             erp_url: erpUrl,
             api_key: apiKey,
             hmac_secret: hmacSecret,
-            school_name: schoolName
+            school_name: schoolName,
+            allow_offline_demo: allowDemo
           })
         });
 
         if (res.success && res.data) {
           const data = res.data;
           if (probeResult) probeResult.style.display = 'block';
+          if (probeError) probeError.style.display = 'none';
+
           if (probeBadge) {
-            probeBadge.className = 'badge badge-healthy';
-            probeBadge.innerHTML = '<i class="fa-solid fa-circle-check"></i> Approval Granted & Verified';
+            if (data.isSimulated) {
+              probeBadge.className = 'badge badge-trial';
+              probeBadge.innerHTML = '<i class="fa-solid fa-flask"></i> Offline Demo Data (Unverified)';
+            } else {
+              probeBadge.className = 'badge badge-healthy';
+              probeBadge.innerHTML = '<i class="fa-solid fa-circle-check"></i> Live Real Data Verified';
+            }
           }
 
           document.getElementById('probe-students-count').textContent = data.totalStudents.toLocaleString();
           document.getElementById('probe-faculty-count').textContent = `${data.teachers} teachers, ${data.staff} staff`;
           document.getElementById('probe-attendance-rate').textContent = `${data.attendanceRate}%`;
           document.getElementById('probe-confirm-school-id').textContent = data.schoolId;
-          document.getElementById('probe-source-badge').textContent = data.source;
+          
+          const sourceBadge = document.getElementById('probe-source-badge');
+          if (sourceBadge) {
+            sourceBadge.textContent = data.source;
+            sourceBadge.className = data.isSimulated ? 'badge badge-trial' : 'badge badge-active';
+          }
 
           // Automatically set real enrolled students into dynamic pricing input
           const initialStudentsInput = document.getElementById('reg-initial-students');
@@ -3963,10 +3999,24 @@ for cmd in commands:
           // Immediately update dynamic per-student subscription calculation
           updateRegisterCalculatedAmount();
 
-          showToast(`Approval granted! Real ERP census verified: ${data.totalStudents.toLocaleString()} enrolled students.`, 'success');
+          if (data.isSimulated) {
+            showToast(`Loaded simulated census: ${data.totalStudents.toLocaleString()} students (Demo mode).`, 'info');
+          } else {
+            showToast(`Real ERP census verified: ${data.totalStudents.toLocaleString()} enrolled students!`, 'success');
+          }
         }
       } catch (err) {
-        showToast(`Approval Request failed: ${err.message}`, 'error');
+        if (probeError) {
+          probeError.style.display = 'block';
+          if (probeErrorMsg) {
+            probeErrorMsg.textContent = err.message;
+          }
+        }
+        if (probeResult) probeResult.style.display = 'none';
+        if (probeBadge) {
+          probeBadge.className = 'badge badge-suspended';
+          probeBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Connection Failed';
+        }
       } finally {
         if (actionBtn) {
           actionBtn.disabled = false;
@@ -3975,8 +4025,9 @@ for cmd in commands:
       }
     };
 
-    document.getElementById('btn-send-approval-request')?.addEventListener('click', handleSendApproval);
-    document.getElementById('btn-probe-erp')?.addEventListener('click', handleSendApproval);
+    document.getElementById('btn-send-approval-request')?.addEventListener('click', () => handleSendApproval(false));
+    document.getElementById('btn-probe-erp')?.addEventListener('click', () => handleSendApproval(false));
+    document.getElementById('btn-use-simulated-demo')?.addEventListener('click', () => handleSendApproval(true));
 
     // ------------------------------------------------------------------------
     // Register School Form Submission
