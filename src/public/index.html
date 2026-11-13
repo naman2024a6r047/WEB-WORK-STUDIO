@@ -947,6 +947,9 @@
       </div>
       <div class="modal-body">
         <form id="form-generate-invoice">
+          <input type="hidden" name="student_count" id="inv-student-count">
+          <input type="hidden" name="unit_rate" id="inv-unit-rate">
+
           <div class="form-group">
             <label class="form-label">Select School *</label>
             <select class="form-select" name="school_id" id="inv-school-select" required></select>
@@ -969,14 +972,21 @@
           </div>
 
           <!-- Dynamic Pricing Context & Breakdown Badge -->
-          <div id="inv-calc-preview" style="background: rgba(37,99,235,0.08); border: 1px dashed var(--accent-primary); border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.8rem; display: flex; align-items: center; justify-content: space-between;">
+          <div id="inv-calc-preview" style="background: rgba(37,99,235,0.08); border: 1px dashed var(--accent-primary); border-radius: 6px; padding: 0.85rem 1rem; margin-bottom: 1rem; font-size: 0.8rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
             <div>
-              <span style="color: var(--text-muted);">Dynamic Rate Calculation:</span>
-              <strong id="inv-calc-formula" style="color: var(--text-main); font-family: monospace; display: block;">Select a school to calculate...</strong>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                <span style="color: var(--text-muted); font-size: 0.75rem;">Dynamic Student Census & Rate:</span>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-inv-refresh-census" style="padding: 0.15rem 0.5rem; font-size: 0.7rem; height: auto;" title="Fetch real-time student count from School ERP">
+                  <i class="fa-solid fa-arrows-rotate"></i> Sync Live Census
+                </button>
+              </div>
+              <strong id="inv-calc-formula" style="color: var(--text-main); font-family: monospace; display: block; font-size: 0.85rem;">Select a school to calculate...</strong>
+              <div id="inv-census-meta" style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;"></div>
             </div>
-            <div style="text-align: right;">
+            <div style="text-align: right; min-width: 140px;">
               <span style="color: var(--text-muted); font-size: 0.72rem; display: block;">Computed Subtotal:</span>
-              <strong id="inv-calc-amount" style="font-size: 1.1rem; color: #10b981;">₹0</strong>
+              <strong id="inv-calc-amount" style="font-size: 1.15rem; color: #10b981; display: block;">₹0</strong>
+              <span id="inv-calc-total-preview" style="font-size: 0.72rem; color: var(--text-dim); display: block; margin-top: 0.15rem;">Total (incl. 18% GST): ₹0</span>
             </div>
           </div>
 
@@ -1004,7 +1014,7 @@
 
           <div class="form-group">
             <label class="form-label">Invoice Notes</label>
-            <textarea class="form-control" name="notes" rows="2" placeholder="Subscription period details, payment bank instructions..."></textarea>
+            <textarea class="form-control" name="notes" id="inv-notes" rows="2" placeholder="Subscription period details, payment bank instructions..."></textarea>
           </div>
         </form>
       </div>

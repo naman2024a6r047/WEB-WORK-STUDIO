@@ -371,9 +371,15 @@
       if (!state.schools || state.schools.length === 0) {
         invSelect.innerHTML = '<option value="">No schools registered yet</option>';
       } else {
-        invSelect.innerHTML = state.schools.map(s => `
-          <option value="${s.id}">${s.name} (${s.code}) - ${s.plan_name || 'Standard'}</option>
-        `).join('');
+        invSelect.innerHTML = state.schools.map(s => {
+          const studentCount = (s.total_students !== undefined && s.total_students !== null && Number(s.total_students) > 0)
+            ? Number(s.total_students)
+            : (Number(s.active_students) > 0 ? Number(s.active_students) : 0);
+          const censusLabel = s.pricing_model === 'PER_STUDENT'
+            ? ` (${studentCount > 0 ? studentCount.toLocaleString('en-IN') : '0'} students @ ₹${s.price_per_student || 25}/mo)`
+            : ' (Flat Tier)';
+          return `<option value="${s.id}">${s.name} (${s.code})${censusLabel} - ${s.plan_name || 'Standard'}</option>`;
+        }).join('');
       }
     }
   }
@@ -844,7 +850,7 @@
           const sel = document.getElementById('inv-school-select');
           if (sel) {
             sel.value = sid;
-            triggerInvoiceFormCalculation();
+            triggerInvoiceFormCalculation(true);
           }
         });
       });
@@ -984,7 +990,7 @@
                         `}
 
                         <!-- View PDF Invoice -->
-                        <a href="/api/v1/invoices/${d.id}/pdf" target="_blank" 
+                        <a href="/api/v1/invoices/${d.id}/pdf?token=${encodeURIComponent(state.token || '')}" target="_blank" 
                           class="btn btn-secondary btn-sm" 
                           title="View / Download Official Tax Invoice PDF">
                           <i class="fa-regular fa-file-pdf"></i> PDF
@@ -1822,14 +1828,19 @@
                       </span>
                     </td>
                     <td>
-                      ${inv.balance_due > 0 ? `
-                        <button class="btn btn-success btn-sm btn-record-pay" data-id="${inv.id}" data-num="${inv.invoice_number}" data-balance="${inv.balance_due}">
-                          <i class="fa-solid fa-dollar-sign"></i> Pay
-                        </button>
-                        <button class="btn btn-secondary btn-sm btn-remind-inv" data-id="${inv.id}">
-                          <i class="fa-regular fa-paper-plane"></i> Remind
-                        </button>
-                      ` : '<span style="color: #10b981; font-size: 0.75rem;"><i class="fa-solid fa-check-circle"></i> Settled</span>'}
+                      <div style="display: flex; gap: 0.35rem; align-items: center;">
+                        <a href="/api/v1/invoices/${inv.id}/pdf?token=${encodeURIComponent(state.token || '')}" target="_blank" class="btn btn-secondary btn-sm" title="View / Download Official Tax Invoice PDF">
+                          <i class="fa-regular fa-file-pdf"></i> PDF
+                        </a>
+                        ${inv.balance_due > 0 ? `
+                          <button class="btn btn-success btn-sm btn-record-pay" data-id="${inv.id}" data-num="${inv.invoice_number}" data-balance="${inv.balance_due}">
+                            <i class="fa-solid fa-dollar-sign"></i> Pay
+                          </button>
+                          <button class="btn btn-secondary btn-sm btn-remind-inv" data-id="${inv.id}">
+                            <i class="fa-regular fa-paper-plane"></i> Remind
+                          </button>
+                        ` : '<span style="color: #10b981; font-size: 0.75rem;"><i class="fa-solid fa-check-circle"></i> Settled</span>'}
+                      </div>
                     </td>
                   </tr>
                 `).join('')}
@@ -1889,7 +1900,10 @@
       document.getElementById('btn-profile-invoice')?.addEventListener('click', () => {
         openModal('modal-generate-invoice');
         const sel = document.getElementById('inv-school-select');
-        if (sel) sel.value = school.id;
+        if (sel) {
+          sel.value = school.id;
+          triggerInvoiceFormCalculation(true);
+        }
       });
 
       document.getElementById('btn-profile-check-students')?.addEventListener('click', async () => {
@@ -2541,6 +2555,7 @@
 
     document.getElementById('btn-create-invoice')?.addEventListener('click', () => {
       openModal('modal-generate-invoice');
+      triggerInvoiceFormCalculation(true);
     });
 
     try {
@@ -2558,7 +2573,7 @@
             <div style="font-size: 2rem; color: var(--text-dim); margin-bottom: 0.5rem;"><i class="fa-solid fa-file-invoice"></i></div>
             <div style="font-weight: 600; color: var(--text-main); margin-bottom: 0.25rem;">No Invoices Generated Yet</div>
             <div style="font-size: 0.85rem; margin-bottom: 1rem;">Once schools are onboarded, subscription invoices and renewals will be tracked here.</div>
-            <button class="btn btn-primary btn-sm" onclick="openModal('modal-generate-invoice')">
+            <button class="btn btn-primary btn-sm" onclick="openModal('modal-generate-invoice'); if (typeof triggerInvoiceFormCalculation === 'function') triggerInvoiceFormCalculation(true);">
               <i class="fa-solid fa-plus"></i> Generate Invoice
             </button>
           </td></tr>`;
@@ -2606,7 +2621,7 @@
                 <td style="text-align: right; white-space: nowrap;">
                   <div style="display: flex; gap: 0.35rem; justify-content: flex-end; align-items: center;">
                     <!-- Download Official PDF -->
-                    <a href="/api/v1/invoices/${i.id}/pdf" target="_blank" class="btn btn-secondary btn-sm" title="Download Official Tax Invoice PDF">
+                    <a href="/api/v1/invoices/${i.id}/pdf?token=${encodeURIComponent(state.token || '')}" target="_blank" class="btn btn-secondary btn-sm" title="View / Download Official Tax Invoice PDF">
                       <i class="fa-regular fa-file-pdf"></i> PDF
                     </a>
 
@@ -4358,21 +4373,33 @@ CENTRAL_HMAC_SECRET=${res.data.hmacSecret}`;
     }
 
     // Invoice dynamic calculation helper
-    function triggerInvoiceFormCalculation() {
-      const schoolId = document.getElementById('inv-school-select')?.value;
-      const cycle = document.getElementById('inv-billing-cycle')?.value || 'YEARLY';
+    function triggerInvoiceFormCalculation(autoSetCycle = false) {
+      const schoolSelect = document.getElementById('inv-school-select');
+      const schoolId = schoolSelect?.value;
       const school = (state.schools || []).find(s => s.id === schoolId);
+
+      const cycleSelect = document.getElementById('inv-billing-cycle');
+      if (autoSetCycle && school && school.billing_cycle && cycleSelect) {
+        cycleSelect.value = school.billing_cycle;
+      }
+      const cycle = cycleSelect?.value || 'YEARLY';
 
       const startInput = document.getElementById('inv-period-start');
       const endInput = document.getElementById('inv-period-end');
       const dueInput = document.getElementById('inv-due-date');
       const subtotalInput = document.getElementById('inv-subtotal');
+      const taxRateInput = document.getElementById('inv-tax-rate');
       const formulaSpan = document.getElementById('inv-calc-formula');
       const amountSpan = document.getElementById('inv-calc-amount');
+      const totalPreview = document.getElementById('inv-calc-total-preview');
+      const metaEl = document.getElementById('inv-census-meta');
+      const notesInput = document.getElementById('inv-notes');
+      const studentCountHidden = document.getElementById('inv-student-count');
+      const unitRateHidden = document.getElementById('inv-unit-rate');
 
       const today = new Date();
-      const startDateStr = today.toISOString().slice(0, 10);
-      if (startInput && !startInput.value) startInput.value = startDateStr;
+      const todayStr = today.toISOString().slice(0, 10);
+      if (startInput && !startInput.value) startInput.value = todayStr;
 
       let months = 12;
       if (cycle === 'MONTHLY') months = 1;
@@ -4380,10 +4407,26 @@ CENTRAL_HMAC_SECRET=${res.data.hmacSecret}`;
       else if (cycle === 'HALF_YEARLY') months = 6;
       else if (cycle === 'YEARLY') months = 12;
 
-      const endDate = new Date(today);
-      endDate.setMonth(endDate.getMonth() + months);
-      if (endInput) endInput.value = endDate.toISOString().slice(0, 10);
+      // Calculate period end based on start date + billing cycle months
+      const startVal = startInput?.value || todayStr;
+      let endStr = '';
+      try {
+        const parts = startVal.split('-');
+        if (parts.length === 3) {
+          const sY = parseInt(parts[0], 10);
+          const sM = parseInt(parts[1], 10);
+          const sD = parseInt(parts[2], 10);
+          const endDate = new Date(sY, (sM - 1) + months, sD);
+          endStr = endDate.toISOString().slice(0, 10);
+        }
+      } catch (e) {
+        const fallbackEnd = new Date(today);
+        fallbackEnd.setMonth(fallbackEnd.getMonth() + months);
+        endStr = fallbackEnd.toISOString().slice(0, 10);
+      }
+      if (endInput) endInput.value = endStr;
 
+      // Due date (default 7 days from now)
       const dueDate = new Date(today);
       dueDate.setDate(dueDate.getDate() + 7);
       if (dueInput && !dueInput.value) dueInput.value = dueDate.toISOString().slice(0, 10);
@@ -4391,26 +4434,106 @@ CENTRAL_HMAC_SECRET=${res.data.hmacSecret}`;
       if (school) {
         let subtotal = 0;
         let formula = '';
+        const students = (school.total_students !== undefined && school.total_students !== null && Number(school.total_students) > 0)
+          ? Number(school.total_students)
+          : (Number(school.active_students) > 0 ? Number(school.active_students) : (school.latest_student_count || 0));
+        const rate = (school.price_per_student !== undefined && school.price_per_student !== null)
+          ? parseFloat(school.price_per_student)
+          : 25.0;
+
+        if (studentCountHidden) studentCountHidden.value = students;
+        if (unitRateHidden) unitRateHidden.value = rate;
+
         if (school.pricing_model === 'PER_STUDENT') {
-          const students = school.latest_student_count || 500;
-          const rate = school.price_per_student || 25.0;
           subtotal = Math.round(students * rate * months);
-          formula = `${students} students × ₹${rate}/student/mo × ${months} mo(s)`;
+          formula = `${students.toLocaleString('en-IN')} students × ₹${rate}/student/mo × ${months} mo(s)`;
         } else {
-          const annual = school.calculated_subscription_amount || school.custom_price || 300000;
+          const annual = school.calculated_subscription_amount || school.custom_price || (school.plan_annual_price || 300000);
           const moRate = annual / 12;
           subtotal = Math.round(moRate * months);
           formula = `Flat Tier (₹${Math.round(moRate).toLocaleString('en-IN')}/mo) × ${months} mo(s)`;
         }
 
+        const taxRate = parseFloat(taxRateInput?.value || 18.0);
+        const taxAmount = Math.round((subtotal * taxRate) / 100);
+        const totalAmount = subtotal + taxAmount;
+
         if (subtotalInput) subtotalInput.value = subtotal;
         if (formulaSpan) formulaSpan.textContent = formula;
         if (amountSpan) amountSpan.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
+        if (totalPreview) totalPreview.textContent = `Total (incl. ${taxRate}% GST): ₹${totalAmount.toLocaleString('en-IN')}`;
+        if (metaEl) {
+          metaEl.innerHTML = `<i class="fa-solid fa-graduation-cap" style="color: var(--accent-primary);"></i> Enrolled: <strong>${students > 0 ? students.toLocaleString('en-IN') : '0'}</strong> students (${school.active_students || students} active) • Model: <strong>${school.pricing_model || 'PER_STUDENT'}</strong>`;
+        }
+
+        if (notesInput && (!notesInput.value || notesInput.dataset.autoGenerated === 'true')) {
+          const cycleLabel = cycle === 'YEARLY' ? 'Annual (12 Months)' : cycle === 'HALF_YEARLY' ? 'Half-Yearly (6 Months)' : cycle === 'QUARTERLY' ? 'Quarterly (3 Months)' : 'Monthly (1 Month)';
+          const notesText = school.pricing_model === 'PER_STUDENT'
+            ? `Subscription billing for ${school.name} (${school.code}) — ${students.toLocaleString('en-IN')} enrolled students @ ₹${rate}/student/mo for ${cycleLabel} period (${startVal} to ${endStr}).`
+            : `Subscription billing for ${school.name} (${school.code}) on ${school.plan_name || 'Standard Tier'} for ${cycleLabel} period (${startVal} to ${endStr}).`;
+          notesInput.value = notesText;
+          notesInput.dataset.autoGenerated = 'true';
+        }
       }
     }
 
-    document.getElementById('inv-school-select')?.addEventListener('change', triggerInvoiceFormCalculation);
-    document.getElementById('inv-billing-cycle')?.addEventListener('change', triggerInvoiceFormCalculation);
+    function updateInvoiceTotalPreview() {
+      const subtotalInput = document.getElementById('inv-subtotal');
+      const taxRateInput = document.getElementById('inv-tax-rate');
+      const totalPreview = document.getElementById('inv-calc-total-preview');
+      const amountSpan = document.getElementById('inv-calc-amount');
+
+      const subtotal = parseFloat(subtotalInput?.value || 0);
+      const taxRate = parseFloat(taxRateInput?.value || 18.0);
+      const taxAmount = Math.round((subtotal * taxRate) / 100);
+      const totalAmount = subtotal + taxAmount;
+
+      if (amountSpan) amountSpan.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
+      if (totalPreview) totalPreview.textContent = `Total (incl. ${taxRate}% GST): ₹${totalAmount.toLocaleString('en-IN')}`;
+    }
+
+    document.getElementById('inv-school-select')?.addEventListener('change', () => triggerInvoiceFormCalculation(true));
+    document.getElementById('inv-billing-cycle')?.addEventListener('change', () => triggerInvoiceFormCalculation(false));
+    document.getElementById('inv-period-start')?.addEventListener('change', () => triggerInvoiceFormCalculation(false));
+    document.getElementById('inv-subtotal')?.addEventListener('input', updateInvoiceTotalPreview);
+    document.getElementById('inv-tax-rate')?.addEventListener('input', updateInvoiceTotalPreview);
+    document.getElementById('inv-notes')?.addEventListener('input', (e) => {
+      e.target.dataset.autoGenerated = 'false';
+    });
+
+    // Refresh live census from ERP button in invoice modal
+    document.getElementById('btn-inv-refresh-census')?.addEventListener('click', async () => {
+      const schoolId = document.getElementById('inv-school-select')?.value;
+      if (!schoolId) return;
+      const school = (state.schools || []).find(s => s.id === schoolId);
+      const btn = document.getElementById('btn-inv-refresh-census');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Syncing...';
+      }
+      try {
+        showToast(`Connecting to School ERP for ${school ? school.name : 'School'}...`, 'info');
+        const res = await api(`/schools/${schoolId}/check-students`, { method: 'POST' });
+        if (res.success && res.data) {
+          const sIdx = (state.schools || []).findIndex(s => s.id === schoolId);
+          if (sIdx !== -1) {
+            state.schools[sIdx].total_students = res.data.studentCount;
+            state.schools[sIdx].active_students = res.data.activeStudents;
+            state.schools[sIdx].price_per_student = res.data.pricePerStudent;
+            state.schools[sIdx].calculated_subscription_amount = res.data.calculatedAmount;
+          }
+          triggerInvoiceFormCalculation(false);
+          showToast(res.message, 'success');
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> Sync Live Census';
+        }
+      }
+    });
 
     // Generate Invoice Form
     const invForm = document.getElementById('form-generate-invoice');
@@ -4564,6 +4687,13 @@ CENTRAL_HMAC_SECRET=${res.data.hmacSecret}`;
         }
         const evt = new Event('input', { bubbles: true });
         document.getElementById('reg-price-per-student')?.dispatchEvent(evt);
+      }
+      if (id === 'modal-generate-invoice') {
+        const notesInput = document.getElementById('inv-notes');
+        if (notesInput) notesInput.dataset.autoGenerated = 'true';
+        if (typeof triggerInvoiceFormCalculation === 'function') {
+          triggerInvoiceFormCalculation(true);
+        }
       }
     }
   }

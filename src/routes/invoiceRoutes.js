@@ -173,7 +173,8 @@ router.get('/data/payments', authenticateToken, (req, res) => {
 // GET /api/v1/invoices/:id/pdf - Stream official PDF invoice
 router.get('/:id/pdf', authenticateToken, (req, res) => {
   try {
-    pdfInvoiceService.generateInvoicePdfStream(req.params.id, res);
+    const isDownload = req.query.download === 'true' || req.query.attachment === 'true';
+    pdfInvoiceService.generateInvoicePdfStream(req.params.id, res, isDownload);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -249,7 +250,19 @@ router.get('/:id', authenticateToken, (req, res) => {
 // POST /api/v1/invoices - Generate new invoice
 router.post('/', authenticateToken, requireRole(['SUPER_ADMIN', 'FINANCE_OFFICER']), (req, res) => {
   try {
-    const { school_id, plan_id, billing_cycle, period_start, period_end, subtotal, tax_rate = 18.0, due_date, notes } = req.body;
+    const { 
+      school_id, 
+      plan_id, 
+      billing_cycle, 
+      period_start, 
+      period_end, 
+      subtotal, 
+      tax_rate = 18.0, 
+      due_date, 
+      notes,
+      student_count,
+      unit_rate
+    } = req.body;
 
     if (!school_id || !subtotal || !due_date || !period_start || !period_end) {
       return res.status(400).json({
@@ -258,9 +271,26 @@ router.post('/', authenticateToken, requireRole(['SUPER_ADMIN', 'FINANCE_OFFICER
       });
     }
 
-    const school = db.get('SELECT id, name, plan_id, billing_cycle FROM schools WHERE id = ?', school_id);
+    const school = db.get('SELECT id, name, plan_id, billing_cycle, pricing_model, price_per_student FROM schools WHERE id = ?', school_id);
     if (!school) {
       return res.status(404).json({ success: false, error: 'School not found' });
+    }
+
+    let finalStudents = (student_count !== undefined && student_count !== null && student_count !== '') 
+      ? parseInt(student_count, 10) 
+      : 0;
+    let finalRate = (unit_rate !== undefined && unit_rate !== null && unit_rate !== '') 
+      ? parseFloat(unit_rate) 
+      : (school.price_per_student || 25.0);
+
+    if (!finalStudents && school.pricing_model === 'PER_STUDENT') {
+      const metric = db.get(
+        'SELECT total_students, active_students FROM school_sync_metrics WHERE school_id = ? ORDER BY sync_timestamp DESC, rowid DESC LIMIT 1',
+        school.id
+      );
+      if (metric) {
+        finalStudents = metric.total_students || metric.active_students || 0;
+      }
     }
 
     const invoiceNum = `INV-${new Date().getFullYear()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
@@ -275,14 +305,17 @@ router.post('/', authenticateToken, requireRole(['SUPER_ADMIN', 'FINANCE_OFFICER
     db.run(`
       INSERT INTO invoices (
         id, invoice_number, school_id, plan_id, billing_cycle, period_start, period_end,
-        issue_date, due_date, subtotal, tax_rate, tax_amount, total_amount, balance_due, status, notes
+        issue_date, due_date, subtotal, tax_rate, tax_amount, total_amount, balance_due, status, notes,
+        student_count, unit_rate
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?,
-        date('now'), ?, ?, ?, ?, ?, ?, 'PENDING', ?
+        date('now'), ?, ?, ?, ?, ?, ?, 'PENDING', ?,
+        ?, ?
       )
     `,
       invoiceId, invoiceNum, school.id, plan_id || school.plan_id, billing_cycle || school.billing_cycle,
-      period_start, period_end, due_date, numSubtotal, numTaxRate, taxAmount, totalAmount, balanceDue, notes || ''
+      period_start, period_end, due_date, numSubtotal, numTaxRate, taxAmount, totalAmount, balanceDue, notes || '',
+      finalStudents, finalRate
     );
 
     // Update school payment_status to PENDING if currently PAID

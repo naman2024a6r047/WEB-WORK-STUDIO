@@ -28,26 +28,56 @@ async function runPdfAndEmailTests() {
   const paymentId = `pay-test-pdf-${Date.now()}`;
 
   try {
-    // 1. Create a test invoice due in 2 days (upcoming due)
+    // 0. Seed real student census metrics for the test school
+    db.run(`
+      INSERT INTO school_sync_metrics (
+        id, school_id, total_students, active_students, inactive_students,
+        total_teachers, active_teachers, inactive_teachers, non_teaching_staff,
+        attendance_rate_pct, sync_source, sync_timestamp
+      ) VALUES (
+        ?, ?, 1420, 1400, 20, 75, 74, 1, 30, 96.5, 'LIVE_TEST', datetime('now')
+      )
+    `, `metric-test-${Date.now()}`, schoolId);
+
+    // 1. Create a test invoice due in 2 days (upcoming due) with student census and notes
     db.run(`
       INSERT INTO invoices (
         id, invoice_number, school_id, billing_cycle,
         period_start, period_end, issue_date, due_date,
-        subtotal, tax_rate, tax_amount, total_amount, balance_due, status
+        subtotal, tax_rate, tax_amount, total_amount, balance_due, status,
+        notes, student_count, unit_rate
       ) VALUES (
         ?, 'INV-2026-PDF01', ?, 'YEARLY',
         date('now'), date('now', '+1 year'), date('now'), date('now', '+2 days'),
-        100000.0, 18.0, 18000.0, 118000.0, 118000.0, 'PENDING'
+        100000.0, 18.0, 18000.0, 118000.0, 118000.0, 'PENDING',
+        'Annual subscription for 1420 students @ INR 28.5/mo', 1420, 28.5
       )
     `, invoiceId, schoolId);
 
-    // 2. Test PDF Generation Service
+    // 2. Test PDF Generation Service with real census and notes
     const { buffer, details } = await pdfInvoiceService.generateInvoicePdfBuffer(invoiceId);
     assert.ok(Buffer.isBuffer(buffer), 'PDF output must be a binary Buffer');
     assert.ok(buffer.length > 1000, `PDF size must be substantial, got ${buffer.length} bytes`);
     assert.strictEqual(buffer.subarray(0, 4).toString(), '%PDF', 'Buffer must have valid %PDF magic header');
     assert.strictEqual(details.invoice.school_name, 'Cambridge International Global Academy');
-    console.log(`✓ Vector PDF invoice generated successfully (${buffer.length} bytes)`);
+    assert.strictEqual(details.invoice.student_count, 1420);
+    assert.strictEqual(details.invoice.unit_rate, 28.5);
+    console.log(`✓ Vector PDF invoice generated successfully (${buffer.length} bytes) with census: 1,420 students`);
+
+    // 2b. Test Token Authentication via Query Param for PDF Streaming
+    const jwt = require('jsonwebtoken');
+    const config = require('../src/config/config');
+    const { authenticateToken } = require('../src/middleware/auth');
+    const testToken = jwt.sign({ id: 'usr-super-admin', email: 'admin@centralcommand.io', role: 'SUPER_ADMIN' }, config.JWT_SECRET);
+
+    let authPassed = false;
+    const mockReq = { headers: {}, query: { token: testToken } };
+    const mockRes = { status: () => ({ json: () => {} }) };
+    authenticateToken(mockReq, mockRes, () => {
+      authPassed = true;
+    });
+    assert.strictEqual(authPassed, true, 'authenticateToken must accept valid token in query param');
+    console.log('✓ Direct browser PDF access authenticated via query param (?token=...)');
 
     // 3. Test Email Service for Invoice & PDF Dispatch
     const emailResult = await emailService.sendInvoiceEmail({

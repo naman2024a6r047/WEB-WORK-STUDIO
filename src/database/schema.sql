@@ -115,6 +115,8 @@ CREATE TABLE IF NOT EXISTS invoices (
     balance_due REAL NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('PAID', 'PENDING', 'PARTIALLY_PAID', 'OVERDUE', 'CANCELLED')),
     notes TEXT,
+    student_count INTEGER DEFAULT 0,
+    unit_rate REAL DEFAULT 0.0,
     reminder_sent_at TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))

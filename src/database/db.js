@@ -54,6 +54,15 @@ function initSchema() {
       db.exec("ALTER TABLE schools ADD COLUMN approved_at TEXT;");
     }
 
+    // Auto-migrate invoice columns for student census tracking
+    const invoiceCols = db.prepare('PRAGMA table_info(invoices)').all().map(c => c.name);
+    if (!invoiceCols.includes('student_count')) {
+      db.exec("ALTER TABLE invoices ADD COLUMN student_count INTEGER DEFAULT 0;");
+    }
+    if (!invoiceCols.includes('unit_rate')) {
+      db.exec("ALTER TABLE invoices ADD COLUMN unit_rate REAL DEFAULT 0.0;");
+    }
+
     // Ensure email_logs table exists
     db.exec(`
       CREATE TABLE IF NOT EXISTS email_logs (

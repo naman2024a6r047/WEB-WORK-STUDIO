@@ -33,7 +33,7 @@ class PdfInvoiceService {
         SELECT school_id, total_students, active_students
         FROM school_sync_metrics
         WHERE school_id = (SELECT school_id FROM invoices WHERE id = ?)
-        ORDER BY sync_timestamp DESC LIMIT 1
+        ORDER BY sync_timestamp DESC, rowid DESC LIMIT 1
       ) m ON s.id = m.school_id
       WHERE i.id = ?
     `, invoiceId, invoiceId);
@@ -142,8 +142,12 @@ class PdfInvoiceService {
     // Line Item Rows
     let rowY = tableHeaderY + 24;
     const isPerStudent = invoice.pricing_model === 'PER_STUDENT';
-    const studentCount = invoice.total_students || 500;
-    const studentRate = invoice.price_per_student || 25.0;
+    let studentCount = invoice.student_count || invoice.total_students || invoice.active_students || 0;
+    if (!studentCount && invoice.notes) {
+      const match = invoice.notes.match(/(\d+)\s*students?/i);
+      if (match) studentCount = parseInt(match[1], 10);
+    }
+    const studentRate = invoice.unit_rate || invoice.price_per_student || 25.0;
 
     doc.rect(40, rowY, 532, 42).fill('#ffffff');
     doc.strokeColor(borderColor).lineWidth(0.75).rect(40, rowY, 532, 42).stroke();
@@ -154,12 +158,12 @@ class PdfInvoiceService {
 
     doc.font('Helvetica').fontSize(7.5).fillColor(mutedText);
     const subDesc = isPerStudent
-      ? `Dynamic Student Census Pricing (${studentCount} enrolled students × INR ${studentRate}/mo × billing multiplier)`
+      ? `Dynamic Student Census Pricing (${studentCount > 0 ? `${studentCount.toLocaleString('en-IN')} enrolled students` : 'Student Census'} × INR ${studentRate}/mo × billing multiplier)`
       : `Standard Tier License for campus administration, student information, and telemetry synchronization`;
     doc.text(subDesc, 75, rowY + 22, { width: 245 });
 
     doc.fontSize(8.5).fillColor(darkText);
-    doc.text(isPerStudent ? `${studentCount} Students` : 'Flat Tier', 330, rowY + 8);
+    doc.text(isPerStudent ? `${studentCount > 0 ? studentCount.toLocaleString('en-IN') : 'N/A'} Students` : (invoice.plan_name || 'Flat Tier'), 330, rowY + 8);
     doc.text(isPerStudent ? `INR ${studentRate}/mo` : `Fixed`, 420, rowY + 8);
     doc.text(formatCurrency(invoice.subtotal), 490, rowY + 8, { align: 'right', width: 72 });
 
@@ -239,12 +243,17 @@ class PdfInvoiceService {
     }
 
     // 8. Footer Notes & Authorization Stamp
-    const footerY = Math.max(nextY, 680);
+    const footerY = Math.max(nextY, 660);
     doc.strokeColor(borderColor).lineWidth(0.75).moveTo(40, footerY).lineTo(572, footerY).stroke();
 
-    doc.fillColor(mutedText).fontSize(7.5).font('Helvetica')
-       .text('Notes & Terms: Subscriptions are billed in advance per registered billing cycle. Unsettled invoices beyond grace period trigger automated service suspension.', 40, footerY + 8, { width: 400 })
-       .text('Authorized Signatory: This is a system-generated electronic tax invoice and requires no physical signature under IT Act 2000.', 40, footerY + 24, { width: 532 });
+    doc.fillColor(mutedText).fontSize(7.5).font('Helvetica');
+    let termsY = footerY + 8;
+    if (invoice.notes && invoice.notes.trim()) {
+      doc.text(`Invoice Notes: ${invoice.notes.trim()}`, 40, footerY + 6, { width: 532 });
+      termsY = footerY + 20;
+    }
+    doc.text('Terms & Conditions: Subscriptions are billed in advance per registered billing cycle. Unsettled invoices beyond grace period trigger automated service suspension.', 40, termsY, { width: 532 })
+       .text('Authorized Signatory: This is a system-generated electronic tax invoice and requires no physical signature under IT Act 2000.', 40, termsY + 12, { width: 532 });
 
     // Watermark if PAID
     if (statusText === 'PAID') {
@@ -259,7 +268,7 @@ class PdfInvoiceService {
   /**
    * Stream PDF directly to HTTP response
    */
-  generateInvoicePdfStream(invoiceId, res) {
+  generateInvoicePdfStream(invoiceId, res, isDownload = false) {
     const details = this.getInvoiceDetails(invoiceId);
     if (!details) {
       return res.status(404).json({ success: false, error: 'Invoice not found' });
@@ -275,8 +284,16 @@ class PdfInvoiceService {
       }
     });
 
+    doc.on('error', (err) => {
+      console.error('[PDF Stream Error]:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: 'Failed to generate PDF document' });
+      }
+    });
+
+    const disposition = isDownload ? 'attachment' : 'inline';
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="Invoice-${details.invoice.invoice_number}.pdf"`);
+    res.setHeader('Content-Disposition', `${disposition}; filename="Invoice-${details.invoice.invoice_number}.pdf"`);
 
     doc.pipe(res);
     this.buildPdfDocument(doc, details);

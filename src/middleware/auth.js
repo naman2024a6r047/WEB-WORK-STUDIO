@@ -4,7 +4,12 @@ const db = require('../database/db');
 
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  let token = authHeader && authHeader.split(' ')[1];
+
+  // Allow token query parameter for direct browser PDF streaming / downloads
+  if (!token && req.query && req.query.token) {
+    token = req.query.token;
+  }
 
   if (!token) {
     return res.status(401).json({ success: false, error: 'Authentication token required' });
