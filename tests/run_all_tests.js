@@ -15,7 +15,8 @@ const testSuites = [
   './test_credentials_and_approval_flow.js',
   './test_deep_analytics_and_exports.js',
   './test_pdf_email_and_due_alerts.js',
-  './test_auth_and_user_mgmt.js'
+  './test_auth_and_user_mgmt.js',
+  './test_permanent_persistence.js'
 ];
 
 let passedCount = 0;

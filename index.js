@@ -37,6 +37,9 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 // Graceful shutdown handling
 process.on('SIGTERM', () => {
   console.log('[System] Received SIGTERM. Shutting down gracefully...');
+  try {
+    db.savePermanentSnapshot();
+  } catch (e) {}
   server.close(() => {
     console.log('[System] HTTP server closed.');
     process.exit(0);

@@ -331,6 +331,8 @@ router.post('/', authenticateToken, requireRole(['SUPER_ADMIN', 'FINANCE_OFFICER
       ip: req.ip
     });
 
+    db.savePermanentSnapshot();
+
     res.status(201).json({
       success: true,
       message: 'Invoice generated successfully',
@@ -417,6 +419,8 @@ router.post('/:id/payments', authenticateToken, requireRole(['SUPER_ADMIN', 'FIN
       console.warn('[Payment Receipt Email Dispatch Error]', emlErr.message);
       emailError = emlErr.message;
     }
+
+    db.savePermanentSnapshot();
 
     res.json({
       success: true,

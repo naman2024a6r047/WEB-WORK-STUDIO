@@ -191,6 +191,8 @@ class CommandQueueService {
       }
     }
 
+    db.savePermanentSnapshot();
+
     return {
       success: true,
       commandId,

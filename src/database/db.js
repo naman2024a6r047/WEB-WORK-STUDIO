@@ -11,8 +11,14 @@ if (!fs.existsSync(dbDir)) {
 
 const db = new DatabaseSync(config.DB_PATH);
 
-// Enable foreign keys and WAL mode for reliability and concurrency
+// Enable foreign keys and WAL mode for reliability, concurrency, and durability
 db.exec('PRAGMA foreign_keys = ON;');
+try {
+  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA synchronous = NORMAL;');
+} catch (e) {
+  // Ignore in restricted environments
+}
 
 // Initialize schema
 function initSchema() {
@@ -98,11 +104,30 @@ function initSchema() {
   } catch (err) {
     console.error('[DB Column Migration Warning]', err.message);
   }
+
+  // Ensure schools and records are restored from permanent registry if empty
+  try {
+    const persistenceManager = require('./persistenceManager');
+    persistenceManager.restoreFromPermanentRegistryIfEmpty(dbHelper);
+  } catch (err) {
+    console.error('[Persistence Manager Startup Notice]', err.message);
+  }
 }
 
 // Database helper functions
 const dbHelper = {
   getRawDb: () => db,
+
+  initSchema: () => initSchema(),
+
+  savePermanentSnapshot: () => {
+    try {
+      const persistenceManager = require('./persistenceManager');
+      return persistenceManager.savePersistentSnapshot(dbHelper);
+    } catch (e) {
+      return { saved: false, error: e.message };
+    }
+  },
 
   all: (sql, ...params) => {
     try {

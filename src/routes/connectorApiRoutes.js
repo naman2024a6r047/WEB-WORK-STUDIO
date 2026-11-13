@@ -182,6 +182,8 @@ router.post('/sync', (req, res) => {
       req.school.id
     );
 
+    db.savePermanentSnapshot();
+
     res.json({
       success: true,
       message: 'ERP statistics and telemetry successfully synchronized',

@@ -2,14 +2,7 @@ const bcrypt = require('bcryptjs');
 const db = require('./db');
 
 function seedDatabase(force = false) {
-  console.log('[Seed] Initializing clean system setup...');
-
-  // Check if users already exist
-  const userCount = db.get('SELECT COUNT(*) as count FROM users');
-  if (!force && userCount && userCount.count > 0) {
-    console.log('[Seed] System already initialized. Skipping.');
-    return;
-  }
+  console.log('[Seed] Ensuring baseline system plans, admin users, and automation rules...');
 
   const salt = bcrypt.genSaltSync(10);
   const passwordHashAdmin = bcrypt.hashSync('Admin@123456', salt);
@@ -18,23 +11,9 @@ function seedDatabase(force = false) {
   const passwordHashAuditor = bcrypt.hashSync('Audit@123456', salt);
 
   db.transaction((tx) => {
-    // Clear any existing dummy data
-    tx.run('DELETE FROM erp_telemetry_history');
-    tx.run('DELETE FROM security_events');
-    tx.run('DELETE FROM remote_commands');
-    tx.run('DELETE FROM payments');
-    tx.run('DELETE FROM invoices');
-    tx.run('DELETE FROM school_sync_metrics');
-    tx.run('DELETE FROM system_notifications');
-    tx.run('DELETE FROM audit_logs');
-    tx.run('DELETE FROM schools');
-    tx.run('DELETE FROM users');
-    tx.run('DELETE FROM subscription_plans');
-    tx.run('DELETE FROM automation_rules');
-
-    // 1. Insert Administrator Users
+    // 1. Ensure Administrator Users exist (INSERT OR IGNORE)
     tx.run(
-      `INSERT INTO users (id, email, password_hash, full_name, role, mfa_enabled, last_login_at) VALUES 
+      `INSERT OR IGNORE INTO users (id, email, password_hash, full_name, role, mfa_enabled, last_login_at) VALUES 
       ('usr-super-admin', 'admin@centralcommand.io', ?, 'Chief SaaS Executive', 'SUPER_ADMIN', 0, datetime('now')),
       ('usr-ops-mgr', 'ops@centralcommand.io', ?, 'Operations Lead', 'OPERATIONS_MANAGER', 0, datetime('now')),
       ('usr-finance-off', 'finance@centralcommand.io', ?, 'Senior Billing Comptroller', 'FINANCE_OFFICER', 0, datetime('now')),
@@ -42,9 +21,10 @@ function seedDatabase(force = false) {
       passwordHashAdmin, passwordHashOps, passwordHashFinance, passwordHashAuditor
     );
 
-    // 2. Insert Standard Subscription Plans (Clean System Tiers)
+    // 2. Ensure Standard Subscription Plans (Clean System Tiers) exist
+    // NEVER delete schools or operational data!
     tx.run(
-      `INSERT INTO subscription_plans (id, code, name, description, tier_level, monthly_price, annual_price, max_students, max_teachers, max_storage_gb, features_json, modules_json) VALUES 
+      `INSERT OR IGNORE INTO subscription_plans (id, code, name, description, tier_level, monthly_price, annual_price, max_students, max_teachers, max_storage_gb, features_json, modules_json) VALUES 
       ('plan-starter', 'STARTER', 'Starter Campus Edition', 'Ideal for boutique pre-primary and primary schools up to 500 students.', 1, 12000.00, 120000.00, 500, 40, 15, 
         '["Student Directory","Daily Attendance","Fee Billing & Receipts","Parent SMS Notifications","Basic Reports"]',
         '["admissions","attendance","fees","academics"]'
@@ -63,9 +43,9 @@ function seedDatabase(force = false) {
       )`
     );
 
-    // 3. Insert Automation Rules
+    // 3. Ensure Automation Rules exist (INSERT OR IGNORE)
     tx.run(
-      `INSERT INTO automation_rules (
+      `INSERT OR IGNORE INTO automation_rules (
         id, code, name, description, trigger_type, condition_json, action_type, is_enabled, last_triggered_at
       ) VALUES 
       (
@@ -96,11 +76,11 @@ function seedDatabase(force = false) {
     );
   });
 
-  console.log('[Seed] Database initialized cleanly with 0 dummy schools and real system tables.');
+  console.log('[Seed] System baseline tables verified. All existing schools and school records are safely preserved.');
 }
 
 if (require.main === module) {
-  seedDatabase(true);
+  seedDatabase();
 }
 
 module.exports = seedDatabase;

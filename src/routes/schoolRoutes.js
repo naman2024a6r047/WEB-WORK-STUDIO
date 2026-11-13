@@ -800,6 +800,8 @@ router.post('/', authenticateToken, requireRole(['SUPER_ADMIN', 'OPERATIONS_MANA
       ip: req.ip
     });
 
+    db.savePermanentSnapshot();
+
     res.status(201).json({
       success: true,
       message: 'School registered successfully with generated keys, School ID, and authorized live data access.',
@@ -849,6 +851,8 @@ router.post('/:id/rotate-credentials', authenticateToken, requireRole(['SUPER_AD
       details: { schoolName: school.name },
       ip: req.ip
     });
+
+    db.savePermanentSnapshot();
 
     res.json({
       success: true,
@@ -960,6 +964,8 @@ router.put('/:id', authenticateToken, requireRole(['SUPER_ADMIN', 'OPERATIONS_MA
       details: req.body,
       ip: req.ip
     });
+
+    db.savePermanentSnapshot();
 
     res.json({
       success: true,
@@ -1179,6 +1185,8 @@ router.delete('/:id', authenticateToken, requireRole(['SUPER_ADMIN', 'OPERATIONS
       details: { schoolName: school.name, schoolCode: school.code },
       ip: req.ip
     });
+
+    db.savePermanentSnapshot();
 
     res.json({
       success: true,
