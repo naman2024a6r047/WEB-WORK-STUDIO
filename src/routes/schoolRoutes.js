@@ -867,26 +867,52 @@ router.post('/:id/rotate-credentials', authenticateToken, requireRole(['SUPER_AD
 // PUT /api/v1/schools/:id - Update school details
 router.put('/:id', authenticateToken, requireRole(['SUPER_ADMIN', 'OPERATIONS_MANAGER']), (req, res) => {
   try {
-    const school = db.get('SELECT id FROM schools WHERE id = ?', req.params.id);
+    const school = db.get('SELECT * FROM schools WHERE id = ?', req.params.id);
     if (!school) {
       return res.status(404).json({ success: false, error: 'School not found' });
     }
 
     const {
-      name, erp_url, address, city, state,
+      name, erp_url, logo_url, address, city, state, country,
       owner_name, owner_email, owner_phone,
       tech_contact_name, tech_contact_email, tech_contact_phone,
-      plan_id, billing_cycle, custom_price, grace_period_days, auto_suspend_enabled,
-      subscription_start, subscription_end
+      plan_id, billing_cycle, pricing_model, price_per_student, custom_price,
+      calculated_subscription_amount, grace_period_days, auto_suspend_enabled,
+      subscription_start, subscription_end,
+      status, payment_status, active_modules
     } = req.body;
+
+    let activeModulesJson = null;
+    if (active_modules !== undefined) {
+      activeModulesJson = Array.isArray(active_modules) ? JSON.stringify(active_modules) : active_modules;
+    }
+
+    // Auto-calculate subscription amount if pricing parameters changed
+    let newCalculatedAmount = calculated_subscription_amount;
+    const finalPricingModel = pricing_model !== undefined ? pricing_model : school.pricing_model;
+    const finalCycle = billing_cycle !== undefined ? billing_cycle : school.billing_cycle;
+    const finalPricePerStudent = price_per_student !== undefined ? parseFloat(price_per_student) : school.price_per_student;
+
+    if (newCalculatedAmount === undefined) {
+      if (finalPricingModel === 'PER_STUDENT') {
+        const latestMetric = db.get('SELECT total_students FROM school_sync_metrics WHERE school_id = ? ORDER BY sync_timestamp DESC LIMIT 1', school.id);
+        const studentCount = latestMetric ? latestMetric.total_students : 0;
+        const cycleMultiplier = finalCycle === 'YEARLY' ? 12 : finalCycle === 'HALF_YEARLY' ? 6 : finalCycle === 'QUARTERLY' ? 3 : 1;
+        newCalculatedAmount = Math.round(studentCount * finalPricePerStudent * cycleMultiplier);
+      } else if (custom_price !== undefined && custom_price !== null) {
+        newCalculatedAmount = parseFloat(custom_price);
+      }
+    }
 
     db.run(`
       UPDATE schools SET
         name = COALESCE(?, name),
         erp_url = COALESCE(?, erp_url),
+        logo_url = COALESCE(?, logo_url),
         address = COALESCE(?, address),
         city = COALESCE(?, city),
         state = COALESCE(?, state),
+        country = COALESCE(?, country),
         owner_name = COALESCE(?, owner_name),
         owner_email = COALESCE(?, owner_email),
         owner_phone = COALESCE(?, owner_phone),
@@ -895,22 +921,35 @@ router.put('/:id', authenticateToken, requireRole(['SUPER_ADMIN', 'OPERATIONS_MA
         tech_contact_phone = COALESCE(?, tech_contact_phone),
         plan_id = COALESCE(?, plan_id),
         billing_cycle = COALESCE(?, billing_cycle),
+        pricing_model = COALESCE(?, pricing_model),
+        price_per_student = COALESCE(?, price_per_student),
         custom_price = ?,
+        calculated_subscription_amount = COALESCE(?, calculated_subscription_amount),
         grace_period_days = COALESCE(?, grace_period_days),
         auto_suspend_enabled = COALESCE(?, auto_suspend_enabled),
+        status = COALESCE(?, status),
+        payment_status = COALESCE(?, payment_status),
+        active_modules_json = COALESCE(?, active_modules_json),
         subscription_start = COALESCE(?, subscription_start),
         subscription_end = COALESCE(?, subscription_end),
         updated_at = datetime('now')
       WHERE id = ?
     `,
-      name, erp_url, address, city, state,
-      owner_name, owner_email, owner_phone,
-      tech_contact_name, tech_contact_email, tech_contact_phone,
-      plan_id, billing_cycle, custom_price === undefined ? null : custom_price,
-      grace_period_days, auto_suspend_enabled,
-      subscription_start, subscription_end,
+      name ?? null, erp_url ?? null, logo_url ?? null, address ?? null, city ?? null, state ?? null, country ?? null,
+      owner_name ?? null, owner_email ?? null, owner_phone ?? null,
+      tech_contact_name ?? null, tech_contact_email ?? null, tech_contact_phone ?? null,
+      plan_id ?? null, billing_cycle ?? null, pricing_model ?? null,
+      price_per_student !== undefined && price_per_student !== null ? parseFloat(price_per_student) : null,
+      custom_price ?? null,
+      newCalculatedAmount ?? null,
+      grace_period_days !== undefined && grace_period_days !== null ? parseInt(grace_period_days, 10) : null,
+      auto_suspend_enabled !== undefined && auto_suspend_enabled !== null ? (auto_suspend_enabled ? 1 : 0) : null,
+      status ?? null, payment_status ?? null, activeModulesJson ?? null,
+      subscription_start ?? null, subscription_end ?? null,
       school.id
     );
+
+    const updatedSchool = db.get('SELECT * FROM schools WHERE id = ?', school.id);
 
     logAudit({
       userId: req.user.id,
@@ -922,7 +961,11 @@ router.put('/:id', authenticateToken, requireRole(['SUPER_ADMIN', 'OPERATIONS_MA
       ip: req.ip
     });
 
-    res.json({ success: true, message: 'School details updated successfully' });
+    res.json({
+      success: true,
+      message: 'School details updated successfully',
+      data: updatedSchool
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

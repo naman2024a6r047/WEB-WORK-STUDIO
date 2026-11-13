@@ -11,6 +11,7 @@ const schoolEmail = 'principal@test-global-school.edu';
 const schoolPhone = '+91 9876543210';
 
 async function runPdfAndEmailTests() {
+  deleteTestSchool(schoolId);
   createTestSchool(schoolId, {
     name: 'Cambridge International Global Academy',
     owner_name: 'Dr. Arthur Pendelton',

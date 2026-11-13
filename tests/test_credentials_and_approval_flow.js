@@ -86,6 +86,51 @@ async function runApprovalFlowTests() {
     console.log(`✓ Verified credentials generation (School ID: ${createdTestSchoolId}, API Key: ${testGenApiKey.slice(0, 16)}...)`);
     console.log(`✓ Verified approval status APPROVED with live real census: ${verifiedStudents} students`);
     console.log(`✓ Verified dynamic subscription calculation: ${verifiedStudents} × ₹${pricePerStudent} × 12 = ₹${expectedPayable.toLocaleString('en-IN')}`);
+
+    // 3.5 Test Editing School Details (PUT /api/v1/schools/:id)
+    const schoolRouter = require('../src/routes/schoolRoutes');
+    const updateRoute = schoolRouter.stack.find(s => s.route && s.route.path === '/:id' && s.route.methods.put);
+    const updateHandler = updateRoute.route.stack[updateRoute.route.stack.length - 1].handle;
+
+    function createMockRes() {
+      return {
+        statusCode: 200,
+        bodyData: null,
+        status: function (code) { this.statusCode = code; return this; },
+        json: function (data) { this.bodyData = data; return this; }
+      };
+    }
+
+    const mockUpdateReq = {
+      params: { id: createdTestSchoolId },
+      body: {
+        name: 'St. Augustine International Academy (Updated Campus)',
+        erp_url: 'https://new-staugustine.schools-erp.cloud',
+        city: 'Mysuru',
+        state: 'Karnataka',
+        owner_name: 'Dr. Mary Joseph',
+        owner_email: 'drmary@staugustine.edu',
+        owner_phone: '+91 98450 99999',
+        price_per_student: 35.0,
+        pricing_model: 'PER_STUDENT',
+        billing_cycle: 'YEARLY'
+      },
+      user: { id: 'usr-super-admin', email: 'admin@centralcommand.io', role: 'SUPER_ADMIN' },
+      ip: '127.0.0.1'
+    };
+    const mockUpdateRes = createMockRes();
+    updateHandler(mockUpdateReq, mockUpdateRes);
+
+    assert.strictEqual(mockUpdateRes.statusCode, 200, 'PUT /:id must return 200');
+    assert.strictEqual(mockUpdateRes.bodyData.success, true);
+    assert.strictEqual(mockUpdateRes.bodyData.data.name, 'St. Augustine International Academy (Updated Campus)');
+    assert.strictEqual(mockUpdateRes.bodyData.data.city, 'Mysuru');
+    assert.strictEqual(mockUpdateRes.bodyData.data.price_per_student, 35.0);
+
+    const reCalculatedExpected = Math.round(verifiedStudents * 35.0 * 12);
+    assert.strictEqual(mockUpdateRes.bodyData.data.calculated_subscription_amount, reCalculatedExpected);
+    console.log(`✓ Verified School Details Update (Name, Location, Rate: ₹35/mo, Recalculated: ₹${reCalculatedExpected.toLocaleString('en-IN')})`);
+
     // 4. Test School Deletion flow
     db.transaction((tx) => {
       tx.run('DELETE FROM payments WHERE school_id = ?', createdTestSchoolId);

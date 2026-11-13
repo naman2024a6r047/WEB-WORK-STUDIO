@@ -1381,6 +1381,9 @@
             </div>
           </td>
           <td style="text-align: right; white-space: nowrap;">
+            <button class="btn btn-secondary btn-sm btn-edit-school" data-id="${s.id}" title="Edit School Details">
+              <i class="fa-solid fa-pen-to-square"></i> Edit
+            </button>
             <button class="btn btn-secondary btn-sm btn-check-students" data-id="${s.id}" data-name="${s.name}" title="Check latest number of students and recalculate amount to pay">
               <i class="fa-solid fa-calculator"></i> Check Students
             </button>
@@ -1399,6 +1402,13 @@
     }).join('');
 
     // Attach listeners
+    document.querySelectorAll('.btn-edit-school').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        openEditSchoolModal(id);
+      });
+    });
+
     document.querySelectorAll('.btn-open-profile, .school-profile-link').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const id = btn.getAttribute('data-id');
@@ -1530,6 +1540,9 @@
             </div>
 
             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <button class="btn btn-secondary btn-sm" id="btn-profile-edit" data-id="${school.id}">
+                <i class="fa-solid fa-pen-to-square"></i> Edit Details
+              </button>
               <button class="btn btn-secondary btn-sm" id="btn-profile-check-students" data-id="${school.id}">
                 <i class="fa-solid fa-calculator"></i> Check Latest Students
               </button>
@@ -1864,6 +1877,10 @@
 
       // Event listeners on Profile Page
       document.getElementById('btn-back-to-schools')?.addEventListener('click', () => switchTab('schools'));
+
+      document.getElementById('btn-profile-edit')?.addEventListener('click', () => {
+        openEditSchoolModal(school.id);
+      });
 
       document.getElementById('btn-profile-remote')?.addEventListener('click', () => {
         openRemoteCommandModal(school.id, school.status === 'ACTIVE' ? 'SUSPEND_SERVICE' : 'REACTIVATE_SERVICE');
@@ -3818,6 +3835,155 @@ for cmd in commands:
 
     updateRegisterCalculatedAmount();
 
+    // Dynamic Edit School Amount Calculation
+    function updateEditCalculatedAmount() {
+      const isPerStudent = document.getElementById('edit-radio-per-student')?.checked;
+      const perStudentInputs = document.getElementById('edit-per-student-inputs');
+      const flatInputs = document.getElementById('edit-flat-price-inputs');
+      const formulaEl = document.getElementById('edit-calc-formula');
+      const totalEl = document.getElementById('edit-calc-total');
+      const cycle = document.getElementById('edit-school-billing-cycle')?.value || 'YEARLY';
+
+      const multipliers = { MONTHLY: 1, QUARTERLY: 3, HALF_YEARLY: 6, YEARLY: 12 };
+      const cycleMultiplier = multipliers[cycle] || 1;
+      const cycleLabel = cycle.toLowerCase().replace('_', '-');
+
+      if (!isPerStudent) {
+        if (perStudentInputs) perStudentInputs.style.display = 'none';
+        if (flatInputs) flatInputs.style.display = 'block';
+
+        const customPriceVal = document.getElementById('edit-school-custom-price')?.value;
+        if (customPriceVal && parseFloat(customPriceVal) > 0) {
+          const customTotal = parseFloat(customPriceVal);
+          if (formulaEl) formulaEl.textContent = `Custom Flat Price (₹${customTotal.toLocaleString()} per ${cycleLabel})`;
+          if (totalEl) totalEl.textContent = `₹${customTotal.toLocaleString()} / ${cycleLabel}`;
+          return;
+        }
+
+        const planSelect = document.getElementById('edit-school-plan-id');
+        const planPrices = {
+          'plan-starter': 12000,
+          'plan-growth': 25000,
+          'plan-enterprise': 55000,
+          'plan-custom': 90000
+        };
+        const monthlyBase = planPrices[planSelect?.value] || 25000;
+        const totalAmount = monthlyBase * cycleMultiplier;
+        if (formulaEl) formulaEl.textContent = `Standard Tier (₹${monthlyBase.toLocaleString()}/mo × ${cycleMultiplier} mos)`;
+        if (totalEl) totalEl.textContent = `₹${totalAmount.toLocaleString()} / ${cycleLabel}`;
+        return;
+      }
+
+      if (perStudentInputs) perStudentInputs.style.display = 'grid';
+      if (flatInputs) flatInputs.style.display = 'none';
+
+      const pricePerStudent = parseFloat(document.getElementById('edit-school-price-per-student')?.value) || 25.0;
+      const students = parseInt(document.getElementById('edit-school-student-count')?.value, 10) || 500;
+      const monthlyAmount = Math.round(students * pricePerStudent);
+      const totalAmount = monthlyAmount * cycleMultiplier;
+
+      if (formulaEl) {
+        formulaEl.textContent = `${students.toLocaleString()} students × ₹${pricePerStudent}/mo × ${cycleMultiplier} mos`;
+      }
+      if (totalEl) {
+        totalEl.textContent = `₹${totalAmount.toLocaleString()} / ${cycleLabel}`;
+      }
+    }
+
+    ['edit-school-price-per-student', 'edit-school-billing-cycle', 'edit-school-plan-id', 'edit-school-custom-price'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', updateEditCalculatedAmount);
+      document.getElementById(id)?.addEventListener('change', updateEditCalculatedAmount);
+    });
+
+    ['edit-radio-per-student', 'edit-radio-flat'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', updateEditCalculatedAmount);
+    });
+
+    // Save School Details Submit Handler
+    const saveSchoolBtn = document.getElementById('btn-save-school-details');
+    if (saveSchoolBtn) {
+      saveSchoolBtn.addEventListener('click', async () => {
+        const schoolId = document.getElementById('edit-school-id')?.value;
+        if (!schoolId) {
+          showToast('Invalid school ID', 'error');
+          return;
+        }
+
+        const name = document.getElementById('edit-school-name')?.value?.trim();
+        const erpUrl = document.getElementById('edit-school-erp-url')?.value?.trim();
+        const city = document.getElementById('edit-school-city')?.value?.trim();
+        const stateVal = document.getElementById('edit-school-state')?.value?.trim();
+        const ownerName = document.getElementById('edit-school-owner-name')?.value?.trim();
+        const ownerEmail = document.getElementById('edit-school-owner-email')?.value?.trim();
+        const ownerPhone = document.getElementById('edit-school-owner-phone')?.value?.trim();
+
+        if (!name || !erpUrl || !city || !stateVal || !ownerName || !ownerEmail || !ownerPhone) {
+          alert('Please fill in all required fields (Name, ERP Base URL, City, State, Owner Name, Email, Phone).');
+          return;
+        }
+
+        const isPerStudent = document.getElementById('edit-radio-per-student')?.checked;
+        const activeModules = Array.from(document.querySelectorAll('#edit-modules-group input:checked')).map(i => i.value);
+
+        const customPriceVal = document.getElementById('edit-school-custom-price')?.value;
+        const pricePerStudentVal = document.getElementById('edit-school-price-per-student')?.value;
+
+        const payload = {
+          name,
+          status: document.getElementById('edit-school-status')?.value,
+          erp_url: erpUrl,
+          payment_status: document.getElementById('edit-school-payment-status')?.value,
+          logo_url: document.getElementById('edit-school-logo-url')?.value?.trim() || null,
+          address: document.getElementById('edit-school-address')?.value?.trim() || null,
+          city,
+          state: stateVal,
+          country: document.getElementById('edit-school-country')?.value?.trim() || 'India',
+          owner_name: ownerName,
+          owner_email: ownerEmail,
+          owner_phone: ownerPhone,
+          tech_contact_name: document.getElementById('edit-school-tech-name')?.value?.trim() || null,
+          tech_contact_email: document.getElementById('edit-school-tech-email')?.value?.trim() || null,
+          tech_contact_phone: document.getElementById('edit-school-tech-phone')?.value?.trim() || null,
+          pricing_model: isPerStudent ? 'PER_STUDENT' : 'FLAT',
+          plan_id: document.getElementById('edit-school-plan-id')?.value,
+          billing_cycle: document.getElementById('edit-school-billing-cycle')?.value,
+          price_per_student: pricePerStudentVal ? parseFloat(pricePerStudentVal) : 25.0,
+          custom_price: customPriceVal ? parseFloat(customPriceVal) : null,
+          grace_period_days: parseInt(document.getElementById('edit-school-grace-days')?.value, 10) || 7,
+          auto_suspend_enabled: document.getElementById('edit-school-auto-suspend')?.checked ? 1 : 0,
+          active_modules: activeModules
+        };
+
+        const originalBtnHtml = saveSchoolBtn.innerHTML;
+        saveSchoolBtn.disabled = true;
+        saveSchoolBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+
+        try {
+          const res = await api(`/schools/${schoolId}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+          });
+
+          closeModal('modal-edit-school');
+          showToast(res.message || 'School details updated successfully!', 'success');
+
+          await loadInitialData();
+          if (state.activeTab === 'school-profile') {
+            renderSchoolProfile(schoolId);
+          } else if (state.activeTab === 'schools') {
+            renderSchoolsList();
+          } else {
+            renderCurrentTab();
+          }
+        } catch (err) {
+          showToast(`Update Failed: ${err.message}`, 'error');
+        } finally {
+          saveSchoolBtn.disabled = false;
+          saveSchoolBtn.innerHTML = originalBtnHtml;
+        }
+      });
+    }
+
     // ------------------------------------------------------------------------
     // Automatic School ID & Cryptographic Keys Generation
     // ------------------------------------------------------------------------
@@ -4405,6 +4571,84 @@ CENTRAL_HMAC_SECRET=${res.data.hmacSecret}`;
   function closeModal(id) {
     const el = document.getElementById(id);
     if (el) el.classList.remove('active');
+  }
+
+  async function openEditSchoolModal(schoolId) {
+    let school = state.schools.find(s => s.id === schoolId);
+    if (!school) {
+      try {
+        const res = await api(`/schools/${schoolId}`);
+        school = res.data?.school;
+      } catch (e) {}
+    }
+    if (!school) {
+      showToast('School not found', 'error');
+      return;
+    }
+
+    document.getElementById('edit-school-id').value = school.id;
+    document.getElementById('edit-school-code-badge').textContent = school.code || school.id;
+    document.getElementById('edit-school-name').value = school.name || '';
+    document.getElementById('edit-school-status').value = school.status || 'ACTIVE';
+    document.getElementById('edit-school-erp-url').value = school.erp_url || '';
+    document.getElementById('edit-school-payment-status').value = school.payment_status || 'PENDING';
+    document.getElementById('edit-school-logo-url').value = school.logo_url || '';
+
+    document.getElementById('edit-school-address').value = school.address || '';
+    document.getElementById('edit-school-city').value = school.city || '';
+    document.getElementById('edit-school-state').value = school.state || '';
+    document.getElementById('edit-school-country').value = school.country || 'India';
+
+    document.getElementById('edit-school-owner-name').value = school.owner_name || '';
+    document.getElementById('edit-school-owner-email').value = school.owner_email || '';
+    document.getElementById('edit-school-owner-phone').value = school.owner_phone || '';
+    document.getElementById('edit-school-tech-name').value = school.tech_contact_name || '';
+    document.getElementById('edit-school-tech-email').value = school.tech_contact_email || '';
+    document.getElementById('edit-school-tech-phone').value = school.tech_contact_phone || '';
+
+    const isPerStudent = (school.pricing_model || 'PER_STUDENT') === 'PER_STUDENT';
+    const perRadio = document.getElementById('edit-radio-per-student');
+    const flatRadio = document.getElementById('edit-radio-flat');
+    if (perRadio) perRadio.checked = isPerStudent;
+    if (flatRadio) flatRadio.checked = !isPerStudent;
+
+    const planSelect = document.getElementById('edit-school-plan-id');
+    if (planSelect) planSelect.value = school.plan_id || 'plan-growth';
+
+    const cycleSelect = document.getElementById('edit-school-billing-cycle');
+    if (cycleSelect) cycleSelect.value = school.billing_cycle || 'YEARLY';
+
+    const ppsInput = document.getElementById('edit-school-price-per-student');
+    if (ppsInput) ppsInput.value = school.price_per_student !== undefined && school.price_per_student !== null ? school.price_per_student : 25.0;
+
+    const studCountInput = document.getElementById('edit-school-student-count');
+    if (studCountInput) studCountInput.value = school.total_students || school.latest_student_count || 500;
+
+    const custPriceInput = document.getElementById('edit-school-custom-price');
+    if (custPriceInput) custPriceInput.value = school.custom_price || '';
+
+    const graceInput = document.getElementById('edit-school-grace-days');
+    if (graceInput) graceInput.value = school.grace_period_days !== undefined ? school.grace_period_days : 7;
+
+    const autoSuspCheckbox = document.getElementById('edit-school-auto-suspend');
+    if (autoSuspCheckbox) autoSuspCheckbox.checked = Boolean(school.auto_suspend_enabled);
+
+    // Active modules checkboxes
+    let activeModules = ['admissions', 'attendance', 'fees', 'academics', 'reports'];
+    try {
+      if (school.active_modules_json) {
+        activeModules = JSON.parse(school.active_modules_json);
+      }
+    } catch (e) {}
+
+    document.querySelectorAll('#edit-modules-group input[type="checkbox"]').forEach(cb => {
+      cb.checked = activeModules.includes(cb.value);
+    });
+
+    const evt = new Event('input', { bubbles: true });
+    document.getElementById('edit-school-price-per-student')?.dispatchEvent(evt);
+
+    openModal('modal-edit-school');
   }
 
   function openRemoteCommandModal(schoolId, commandType = 'SUSPEND_SERVICE') {

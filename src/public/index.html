@@ -575,6 +575,241 @@
     </div>
   </div>
 
+  <!-- Modal: Edit School Details -->
+  <div class="modal-overlay" id="modal-edit-school">
+    <div class="modal-card modal-card-lg" style="max-width: 840px; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fa-solid fa-pen-to-square" style="color: var(--accent-primary); margin-right: 0.5rem;"></i> Edit School Details
+        </div>
+        <button type="button" class="btn-icon modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y: auto; flex: 1;">
+        <form id="form-edit-school">
+          <input type="hidden" name="id" id="edit-school-id">
+
+          <!-- 1. School Identity & ERP Configuration -->
+          <div style="background: var(--bg-card-header); border: 1px solid var(--border-main); border-radius: 8px; padding: 1.1rem; margin-bottom: 1.15rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+              <label class="form-label" style="margin-bottom: 0; font-weight: 700; color: var(--accent-primary); font-size: 0.85rem;">
+                <i class="fa-solid fa-school-flag"></i> 1. School Identity & ERP Address
+              </label>
+              <span id="edit-school-code-badge" style="font-family: monospace; font-size: 0.78rem; font-weight: 700; background: var(--bg-card); border: 1px solid var(--border-main); padding: 0.2rem 0.55rem; border-radius: 4px; color: var(--accent-primary);">
+                SCH-XXXXX
+              </span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.85rem; margin-bottom: 0.75rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">School Name *</label>
+                <input type="text" class="form-control" name="name" id="edit-school-name" required placeholder="e.g. Cambridge Global Academy">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Operational Status *</label>
+                <select class="form-select" name="status" id="edit-school-status">
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="SUSPENDED">SUSPENDED</option>
+                  <option value="TRIAL">TRIAL</option>
+                  <option value="PENDING_SETUP">PENDING_SETUP</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.85rem; margin-bottom: 0.75rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">School ERP Base URL *</label>
+                <input type="url" class="form-control" name="erp_url" id="edit-school-erp-url" required placeholder="https://myschool.schools-erp.cloud">
+                <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem;">Live domain of this school's ERP website</div>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Payment Status *</label>
+                <select class="form-select" name="payment_status" id="edit-school-payment-status">
+                  <option value="PAID">PAID</option>
+                  <option value="PENDING">PENDING</option>
+                  <option value="GRACE_PERIOD">GRACE_PERIOD</option>
+                  <option value="OVERDUE">OVERDUE</option>
+                  <option value="FAILED">FAILED</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Logo Image URL</label>
+              <input type="url" class="form-control" name="logo_url" id="edit-school-logo-url" placeholder="https://example.com/logo.png">
+            </div>
+          </div>
+
+          <!-- 2. Location & Geographic Address -->
+          <div style="background: var(--bg-card-header); border: 1px solid var(--border-main); border-radius: 8px; padding: 1.1rem; margin-bottom: 1.15rem;">
+            <label class="form-label" style="margin-bottom: 0.75rem; font-weight: 700; color: var(--accent-primary); font-size: 0.85rem;">
+              <i class="fa-solid fa-location-dot"></i> 2. Geographic Location
+            </label>
+
+            <div class="form-group" style="margin-bottom: 0.75rem;">
+              <label class="form-label">Physical Street Address</label>
+              <input type="text" class="form-control" name="address" id="edit-school-address" placeholder="e.g. 124 Knowledge City Campus Road">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.85rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">City *</label>
+                <input type="text" class="form-control" name="city" id="edit-school-city" required placeholder="e.g. Pune">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">State *</label>
+                <input type="text" class="form-control" name="state" id="edit-school-state" required placeholder="e.g. Maharashtra">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Country</label>
+                <input type="text" class="form-control" name="country" id="edit-school-country" value="India" placeholder="e.g. India">
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Key Personnel & Contact Information -->
+          <div style="background: var(--bg-card-header); border: 1px solid var(--border-main); border-radius: 8px; padding: 1.1rem; margin-bottom: 1.15rem;">
+            <label class="form-label" style="margin-bottom: 0.75rem; font-weight: 700; color: var(--accent-primary); font-size: 0.85rem;">
+              <i class="fa-solid fa-users"></i> 3. Administrative & Technical Contacts
+            </label>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.85rem; margin-bottom: 0.75rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Principal / Owner Name *</label>
+                <input type="text" class="form-control" name="owner_name" id="edit-school-owner-name" required placeholder="e.g. Dr. John Doe">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Owner Email *</label>
+                <input type="email" class="form-control" name="owner_email" id="edit-school-owner-email" required placeholder="owner@school.edu">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Owner Phone *</label>
+                <input type="tel" class="form-control" name="owner_phone" id="edit-school-owner-phone" required placeholder="+91 98765 43210">
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.85rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Technical Contact Name</label>
+                <input type="text" class="form-control" name="tech_contact_name" id="edit-school-tech-name" placeholder="e.g. Rahul Sharma">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Technical Contact Email</label>
+                <input type="email" class="form-control" name="tech_contact_email" id="edit-school-tech-email" placeholder="tech@school.edu">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Technical Contact Phone</label>
+                <input type="tel" class="form-control" name="tech_contact_phone" id="edit-school-tech-phone" placeholder="+91 98765 00000">
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. Commercial Terms & Pricing Model -->
+          <div style="background: var(--bg-card-header); border: 1px solid var(--border-main); border-radius: 8px; padding: 1.1rem; margin-bottom: 1.15rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+              <label class="form-label" style="margin-bottom: 0; font-weight: 700; color: var(--accent-primary); font-size: 0.85rem;">
+                <i class="fa-solid fa-calculator"></i> 4. Commercial Terms & Billing Setup
+              </label>
+              <div style="display: flex; gap: 0.75rem; font-size: 0.8rem;">
+                <label style="cursor: pointer; display: flex; align-items: center; gap: 0.25rem;">
+                  <input type="radio" name="pricing_model" value="PER_STUDENT" id="edit-radio-per-student"> Per-Student Rate
+                </label>
+                <label style="cursor: pointer; display: flex; align-items: center; gap: 0.25rem;">
+                  <input type="radio" name="pricing_model" value="FLAT" id="edit-radio-flat"> Flat Tier Price
+                </label>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; margin-bottom: 0.75rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Subscription Plan Tier *</label>
+                <select class="form-select" name="plan_id" id="edit-school-plan-id">
+                  <option value="plan-starter">Starter Campus Edition (₹12,000/mo)</option>
+                  <option value="plan-growth">Growth Academy Pro (₹25,000/mo)</option>
+                  <option value="plan-enterprise">Enterprise Global Campus (₹55,000/mo)</option>
+                  <option value="plan-custom">Custom Mega-Campus (₹90,000/mo)</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Billing Cycle *</label>
+                <select class="form-select" name="billing_cycle" id="edit-school-billing-cycle">
+                  <option value="MONTHLY">Monthly</option>
+                  <option value="QUARTERLY">Quarterly</option>
+                  <option value="HALF_YEARLY">Half-Yearly</option>
+                  <option value="YEARLY">Yearly</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="edit-per-student-inputs" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; margin-bottom: 0.75rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Rate Per Student (₹ / student / month) *</label>
+                <input type="number" class="form-control" name="price_per_student" id="edit-school-price-per-student" step="0.5" min="1" placeholder="e.g. 25">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Current Enrolled Students</label>
+                <input type="number" class="form-control" id="edit-school-student-count" readonly style="background: var(--bg-card); font-weight: 600;">
+              </div>
+            </div>
+
+            <div id="edit-flat-price-inputs" style="display: none; margin-bottom: 0.75rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Custom Fixed Price (₹ / billing cycle)</label>
+                <input type="number" class="form-control" name="custom_price" id="edit-school-custom-price" step="1" placeholder="Leave empty to use standard plan price">
+              </div>
+            </div>
+
+            <div id="edit-calculation-box" style="padding: 0.75rem 1rem; background: rgba(37,99,235,0.08); border: 1px dashed var(--accent-primary); border-radius: 6px; font-size: 0.825rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+              <div>
+                <span style="color: var(--text-muted); font-size: 0.75rem;">Recalculated Fee:</span>
+                <strong id="edit-calc-formula" style="color: var(--text-main); margin-left: 0.35rem; font-family: monospace;">---</strong>
+              </div>
+              <div style="text-align: right;">
+                <span style="color: var(--text-muted); font-size: 0.72rem; display: block;">Subscription Amount:</span>
+                <strong id="edit-calc-total" style="font-size: 1.15rem; color: #10b981;">₹0</strong>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; align-items: center;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Grace Period (Days)</label>
+                <input type="number" class="form-control" name="grace_period_days" id="edit-school-grace-days" value="7">
+              </div>
+              <div class="form-group" style="margin-bottom: 0; display: flex; align-items: center; gap: 0.5rem; margin-top: 1.25rem;">
+                <input type="checkbox" name="auto_suspend_enabled" id="edit-school-auto-suspend" style="width: 16px; height: 16px; cursor: pointer;">
+                <label for="edit-school-auto-suspend" style="font-size: 0.8rem; cursor: pointer; margin-bottom: 0;">Enable Auto-Suspension after grace period</label>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. Permitted Feature Modules -->
+          <div style="background: var(--bg-card-header); border: 1px solid var(--border-main); border-radius: 8px; padding: 1.1rem; margin-bottom: 0.5rem;">
+            <label class="form-label" style="margin-bottom: 0.65rem; font-weight: 700; color: var(--accent-primary); font-size: 0.85rem;">
+              <i class="fa-solid fa-cubes"></i> 5. Active Feature Modules
+            </label>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; font-size: 0.825rem;" id="edit-modules-group">
+              <label><input type="checkbox" value="admissions"> Admissions & Census</label>
+              <label><input type="checkbox" value="attendance"> Daily Attendance</label>
+              <label><input type="checkbox" value="fees"> Student Fee Billing</label>
+              <label><input type="checkbox" value="academics"> Academics & Timetable</label>
+              <label><input type="checkbox" value="exams"> Examination & Report Cards</label>
+              <label><input type="checkbox" value="library"> Library Management</label>
+              <label><input type="checkbox" value="payroll"> Staff Payroll</label>
+              <label><input type="checkbox" value="transport"> GPS Bus Transport</label>
+              <label><input type="checkbox" value="hostel"> Hostel & Dorms</label>
+              <label><input type="checkbox" value="reports"> Analytics & Reports</label>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary modal-close-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-save-school-details">
+          <i class="fa-solid fa-floppy-disk"></i> Save School Details
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal: Interactive Live Report Previewer -->
   <div class="modal-overlay" id="modal-report-preview">
     <div class="modal-card modal-card-lg" style="max-width: 1080px; width: 95%;">
