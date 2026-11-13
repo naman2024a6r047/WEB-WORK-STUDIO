@@ -176,6 +176,34 @@ The database is pre-seeded with 4 administrative accounts to test Role-Based Acc
 | `test_sync_and_bi.js` | Idempotent telemetry sync and real-time executive BI calculations | ✅ PASS |
 | `test_per_student_pricing.js` | Dynamic per-student pricing formula and 24-hour automatic census reconciliation cron | ✅ PASS |
 | `test_credentials_and_approval_flow.js` | Auto-generation of credentials, approval handshake dispatch, and real census ingestion | ✅ PASS |
+| `test_deep_analytics_and_exports.js` | Real-data analytics hub, financial ledgers, census distributions, and multi-format CSV/JSON exports | ✅ PASS |
+| `test_pdf_email_and_due_alerts.js` | Vector PDF tax invoice generation, email dispatch, WhatsApp messaging, and approaching due alerts | ✅ PASS |
+
+---
+
+## 🗄️ Hostinger Database (MySQL / MariaDB) Setup
+
+The platform natively supports **Hostinger MySQL & MariaDB** databases for hosting all platform tables, users, and telemetry data:
+
+1. In your **Hostinger hPanel**:
+   - Go to **Databases** $\rightarrow$ **MySQL Databases** $\rightarrow$ Create a new database and username.
+   - Go to **Remote MySQL** $\rightarrow$ Add IP `%` (Any host) or your server IP so Central Command can connect remotely.
+2. In your `.env` file (copy from `.env.example`):
+   ```env
+   DB_CLIENT=mysql
+   DB_HOST=sqlXXX.hostinger.com    # Provided in Hostinger hPanel
+   DB_PORT=3306
+   DB_NAME=u123456789_central_erp
+   DB_USER=u123456789_admin
+   DB_PASSWORD=your_hostinger_password
+   ```
+3. Run the automated migration utility:
+   ```bash
+   npm run migrate:hostinger
+   ```
+   This deploys the 13 relational tables from `src/database/schema.mysql.sql` and copies all local administrators, schools, invoices, and metrics straight to Hostinger!
+
+---
 
 ---
 
