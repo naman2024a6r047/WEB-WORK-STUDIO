@@ -70,7 +70,7 @@ router.post('/heartbeat', (req, res) => {
 
     // Check if there are pending commands in queue
     const pendingCount = db.get(
-      'SELECT COUNT(*) as cnt FROM remote_commands WHERE school_id = ? AND status = "PENDING"',
+      "SELECT COUNT(*) as cnt FROM remote_commands WHERE school_id = ? AND status = 'PENDING'",
       req.school.id
     );
 
@@ -178,7 +178,7 @@ router.post('/sync', (req, res) => {
     });
 
     const pendingCount = db.get(
-      'SELECT COUNT(*) as cnt FROM remote_commands WHERE school_id = ? AND status = "PENDING"',
+      "SELECT COUNT(*) as cnt FROM remote_commands WHERE school_id = ? AND status = 'PENDING'",
       req.school.id
     );
 

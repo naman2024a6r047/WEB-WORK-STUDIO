@@ -349,7 +349,7 @@ router.post('/:id/payments', authenticateToken, requireRole(['SUPER_ADMIN', 'FIN
 
       // 3. Check if all invoices for school are now settled
       const remainingDues = tx.get(
-        'SELECT SUM(balance_due) as remaining FROM invoices WHERE school_id = ? AND status IN ("OVERDUE", "PENDING", "PARTIALLY_PAID")',
+        "SELECT SUM(balance_due) as remaining FROM invoices WHERE school_id = ? AND status IN ('OVERDUE', 'PENDING', 'PARTIALLY_PAID')",
         invoice.school_id
       );
 
