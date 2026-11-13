@@ -21,65 +21,73 @@
 </head>
 <body class="dark-mode">
 
-  <!-- Real Dedicated Administrator Login Screen -->
+  <!-- Dedicated Database-Enforced Administrator Authentication Screen -->
   <div id="login-screen" class="login-container">
     <div class="login-card">
-      <div style="text-align: center; margin-bottom: 2rem;">
-        <div class="login-logo">
-          <i class="fa-solid fa-layer-group"></i>
+      <div style="text-align: center; margin-bottom: 1.75rem;">
+        <div class="login-logo" style="margin: 0 auto 1rem auto; width: 56px; height: 56px; border-radius: 14px; background: linear-gradient(135deg, #2563eb, #1d4ed8); display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 25px -5px rgba(37,99,235,0.4);">
+          <i class="fa-solid fa-layer-group" style="font-size: 1.75rem; color: #ffffff;"></i>
         </div>
-        <h1 style="font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.35rem;">CENTRAL ERP COMMAND</h1>
-        <p style="color: var(--text-muted); font-size: 0.85rem;">Multi-School SaaS BI & Remote Administration</p>
+        <h1 style="font-size: 1.45rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.35rem; color: var(--text-main);">CENTRAL ERP COMMAND</h1>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.75rem;">Multi-School SaaS BI & Remote Administration</p>
+        <div style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.75rem; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); border-radius: 999px; font-size: 0.72rem; color: #10b981; font-weight: 600;">
+          <i class="fa-solid fa-database"></i> Database Authenticated System
+        </div>
       </div>
 
-      <div id="login-error-alert" style="display: none; background: rgba(239,68,68,0.12); border: 1px solid #ef4444; color: #ef4444; padding: 0.75rem 1rem; border-radius: 6px; font-size: 0.85rem; margin-bottom: 1.25rem;">
-        <i class="fa-solid fa-triangle-exclamation" style="margin-right: 0.4rem;"></i>
-        <span id="login-error-text">Invalid administrator email or password</span>
+      <div id="login-error-alert" style="display: none; background: rgba(239,68,68,0.12); border: 1px solid #ef4444; color: #ef4444; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.825rem; margin-bottom: 1.25rem; line-height: 1.4;">
+        <div style="display: flex; align-items: flex-start; gap: 0.5rem;">
+          <i class="fa-solid fa-triangle-exclamation" style="margin-top: 2px;"></i>
+          <span id="login-error-text">Invalid User ID/Email or Password</span>
+        </div>
       </div>
 
       <form id="form-login">
         <div class="form-group" style="margin-bottom: 1.15rem;">
-          <label class="form-label" for="login-email">Administrator Email *</label>
+          <label class="form-label" for="login-identifier" style="font-weight: 600; font-size: 0.85rem;">User ID or Email *</label>
           <div style="position: relative;">
-            <i class="fa-regular fa-envelope" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 0.85rem;"></i>
-            <input type="email" id="login-email" class="form-control" style="padding-left: 2.35rem;" required placeholder="admin@centralcommand.io" autocomplete="username" autofocus>
+            <i class="fa-solid fa-user" style="position: absolute; left: 0.9rem; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 0.85rem;"></i>
+            <input type="text" id="login-identifier" class="form-control" style="padding-left: 2.4rem;" required placeholder="Enter User ID or Email" autocomplete="username" autofocus>
+          </div>
+          <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">
+            Authenticate using any User ID or Email present in the database.
           </div>
         </div>
 
         <div class="form-group" style="margin-bottom: 1.15rem;">
-          <label class="form-label" for="login-password">Master Password *</label>
+          <label class="form-label" for="login-password" style="font-weight: 600; font-size: 0.85rem;">Password *</label>
           <div style="position: relative;">
-            <i class="fa-solid fa-lock" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 0.85rem;"></i>
-            <input type="password" id="login-password" class="form-control" style="padding-left: 2.35rem;" required placeholder="••••••••••••" autocomplete="current-password">
+            <i class="fa-solid fa-lock" style="position: absolute; left: 0.9rem; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 0.85rem;"></i>
+            <input type="password" id="login-password" class="form-control" style="padding-left: 2.4rem; padding-right: 2.5rem;" required placeholder="••••••••••••" autocomplete="current-password">
+            <button type="button" id="btn-toggle-login-pass" class="btn-icon" style="position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%); color: var(--text-dim); background: none; border: none; cursor: pointer; padding: 0.25rem;" title="Show or hide password">
+              <i class="fa-regular fa-eye" id="toggle-pass-icon"></i>
+            </button>
           </div>
         </div>
 
-        <div class="form-group" style="margin-bottom: 1.5rem;">
-          <label class="form-label" for="login-mfa">Two-Factor Authentication (MFA)</label>
+        <!-- Dynamic MFA Verification (Only triggered if user account in DB has 2FA enabled) -->
+        <div class="form-group" id="group-login-mfa" style="display: none; margin-bottom: 1.25rem;">
+          <label class="form-label" for="login-mfa" style="font-weight: 600; font-size: 0.85rem; color: var(--accent-primary);">
+            <i class="fa-solid fa-shield-halved"></i> Two-Factor Authenticator Code (6 Digits) *
+          </label>
           <div style="position: relative;">
-            <i class="fa-solid fa-shield-halved" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 0.85rem;"></i>
-            <input type="text" id="login-mfa" class="form-control" style="padding-left: 2.35rem;" placeholder="123456 (Default: 123456)" maxlength="6">
+            <i class="fa-solid fa-key" style="position: absolute; left: 0.9rem; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 0.85rem;"></i>
+            <input type="text" id="login-mfa" class="form-control" style="padding-left: 2.4rem; font-family: monospace; letter-spacing: 0.15em;" placeholder="123456" maxlength="6">
           </div>
         </div>
 
-        <button type="submit" class="btn btn-primary" id="btn-submit-login" style="width: 100%; padding: 0.75rem; font-weight: 600; font-size: 0.95rem; justify-content: center;">
+        <button type="submit" class="btn btn-primary" id="btn-submit-login" style="width: 100%; padding: 0.8rem; font-weight: 700; font-size: 0.95rem; justify-content: center; margin-top: 0.5rem; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: none; box-shadow: 0 4px 14px rgba(37,99,235,0.4);">
           <i class="fa-solid fa-right-to-bracket"></i> Sign In to Central Command
         </button>
       </form>
 
-      <!-- Quick Credentials Helper -->
-      <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border-main); font-size: 0.78rem; color: var(--text-muted);">
-        <div style="margin-bottom: 0.6rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; font-size: 0.7rem;">Quick Fill Account:</div>
-        <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-          <button type="button" class="btn btn-secondary btn-sm btn-quick-creds" data-email="admin@centralcommand.io" data-pass="Admin@123456" style="font-size: 0.75rem;">
-            Super Admin
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm btn-quick-creds" data-email="ops@centralcommand.io" data-pass="Ops@123456" style="font-size: 0.75rem;">
-            Operations
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm btn-quick-creds" data-email="finance@centralcommand.io" data-pass="Finance@123456" style="font-size: 0.75rem;">
-            Finance
-          </button>
+      <!-- Security Notice Footer -->
+      <div style="margin-top: 1.5rem; padding: 0.85rem 1rem; background: var(--bg-card-header); border: 1px solid var(--border-main); border-radius: 8px; font-size: 0.74rem; color: var(--text-muted); line-height: 1.45;">
+        <div style="display: flex; align-items: flex-start; gap: 0.5rem;">
+          <i class="fa-solid fa-shield-check" style="color: var(--accent-primary); margin-top: 2px;"></i>
+          <div>
+            <strong>Strict Database Access Control:</strong> Only User IDs and passwords stored in the database (<code style="color: var(--accent-primary); font-size: 0.72rem;">users</code> table) are accepted.
+          </div>
         </div>
       </div>
     </div>
@@ -808,6 +816,62 @@
         <button class="btn btn-secondary modal-close-btn">Cancel</button>
         <button class="btn btn-success" id="btn-submit-record-payment">
           <i class="fa-solid fa-check-circle"></i> Confirm Payment & Email Receipt
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add New Database User -->
+  <div class="modal-overlay" id="modal-add-db-user">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fa-solid fa-user-plus" style="color: var(--accent-primary); margin-right: 0.5rem;"></i>
+          Add New User to Database
+        </div>
+        <button type="button" class="btn-icon modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+          Credentials created here are stored securely in the central database (<code style="color: var(--accent-primary);">users</code> table) with bcrypt password hashing. The user can immediately sign in with their User ID and Password.
+        </div>
+        <form id="form-add-db-user">
+          <div class="form-group">
+            <label class="form-label">User ID (Username) *</label>
+            <input type="text" class="form-control" id="new-user-id" required placeholder="e.g. rahul-dev or finance-lead" pattern="[a-zA-Z0-9_-]{3,32}">
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">3-32 characters (letters, numbers, hyphens, underscores). Used to log in.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Full Name *</label>
+            <input type="text" class="form-control" id="new-user-fullname" required placeholder="e.g. Rahul Sharma">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Official Email Address *</label>
+            <input type="email" class="form-control" id="new-user-email" required placeholder="e.g. rahul@centralcommand.io">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">System Role *</label>
+            <select class="form-select" id="new-user-role">
+              <option value="OPERATIONS_MANAGER">Operations Manager (Full operational & school management)</option>
+              <option value="FINANCE_OFFICER">Finance Officer (Billing, Invoices, Payment reconciliation)</option>
+              <option value="AUDITOR">Security & Compliance Auditor (Read-only security & audit)</option>
+              <option value="SUPER_ADMIN">Super Administrator (Full platform root privilege)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Password *</label>
+            <input type="password" class="form-control" id="new-user-password" required placeholder="Enter strong password (min 6 chars)" minlength="6">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary modal-close-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-add-db-user">
+          <i class="fa-solid fa-user-plus"></i> Save User to Database
         </button>
       </div>
     </div>

@@ -223,12 +223,6 @@ CREATE TABLE IF NOT EXISTS system_notifications (
 CREATE TABLE IF NOT EXISTS automation_rules (
     id VARCHAR(64) PRIMARY KEY,
     code VARCHAR(64) UNIQUE NOT NULL,
-    remote_school_id VARCHAR(64) NULL,
-    data_access_approved TINYINT(1) DEFAULT 1,
-    approval_status ENUM('PENDING', 'APPROVED', 'REJECTED') DEFAULT 'APPROVED',
-    approval_token VARCHAR(255) NULL,
-    approval_requested_at DATETIME NULL,
-    approved_at DATETIME NULL,
     name VARCHAR(255) NOT NULL,
     description TEXT NULL,
     trigger_type VARCHAR(64) NOT NULL,

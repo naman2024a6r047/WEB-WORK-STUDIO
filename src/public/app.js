@@ -115,33 +115,54 @@
 
   function setupLoginForm() {
     const form = document.getElementById('form-login');
-    const emailInput = document.getElementById('login-email');
+    const identifierInput = document.getElementById('login-identifier');
     const passInput = document.getElementById('login-password');
+    const mfaGroup = document.getElementById('group-login-mfa');
     const mfaInput = document.getElementById('login-mfa');
     const errAlert = document.getElementById('login-error-alert');
     const errText = document.getElementById('login-error-text');
     const submitBtn = document.getElementById('btn-submit-login');
+    const togglePassBtn = document.getElementById('btn-toggle-login-pass');
+    const togglePassIcon = document.getElementById('toggle-pass-icon');
 
-    // Quick fill helper pills for administrator accounts
-    document.querySelectorAll('.btn-quick-creds').forEach(b => {
-      b.addEventListener('click', () => {
-        if (emailInput) emailInput.value = b.getAttribute('data-email');
-        if (passInput) passInput.value = b.getAttribute('data-pass');
-        if (mfaInput) mfaInput.value = '123456';
-        if (errAlert) errAlert.style.display = 'none';
+    // Toggle password visibility
+    if (togglePassBtn && passInput) {
+      togglePassBtn.addEventListener('click', () => {
+        if (passInput.type === 'password') {
+          passInput.type = 'text';
+          if (togglePassIcon) {
+            togglePassIcon.classList.remove('fa-eye');
+            togglePassIcon.classList.add('fa-eye-slash');
+          }
+        } else {
+          passInput.type = 'password';
+          if (togglePassIcon) {
+            togglePassIcon.classList.remove('fa-eye-slash');
+            togglePassIcon.classList.add('fa-eye');
+          }
+        }
       });
+    }
+
+    // Clear error alert on new input
+    [identifierInput, passInput, mfaInput].forEach(inp => {
+      if (inp) {
+        inp.addEventListener('input', () => {
+          if (errAlert) errAlert.style.display = 'none';
+        });
+      }
     });
 
     if (form) {
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const email = emailInput?.value.trim();
+        const identifier = identifierInput?.value.trim();
         const password = passInput?.value;
-        const mfaCode = mfaInput?.value.trim() || '123456';
+        const mfaCode = mfaInput?.value.trim();
 
-        if (!email || !password) {
+        if (!identifier || !password) {
           if (errAlert && errText) {
-            errText.textContent = 'Please enter both administrator email and password';
+            errText.textContent = 'Please enter both User ID / Email and password.';
             errAlert.style.display = 'block';
           }
           return;
@@ -150,14 +171,28 @@
         if (errAlert) errAlert.style.display = 'none';
         if (submitBtn) {
           submitBtn.disabled = true;
-          submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Authenticating...';
+          submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Authenticating with Database...';
         }
 
         try {
           const res = await api('/auth/login', {
             method: 'POST',
-            body: JSON.stringify({ email, password, mfaCode })
+            body: JSON.stringify({ identifier, password, mfaCode })
           });
+
+          // Check if user requires MFA 2-factor code
+          if (res.requiresMfa) {
+            if (mfaGroup) mfaGroup.style.display = 'block';
+            if (mfaInput) mfaInput.focus();
+            if (errAlert && errText) {
+              errText.textContent = res.message || 'Two-factor authentication code required. Please enter code.';
+              errAlert.style.display = 'block';
+              errAlert.style.background = 'rgba(37,99,235,0.12)';
+              errAlert.style.borderColor = '#2563eb';
+              errAlert.style.color = '#3b82f6';
+            }
+            return;
+          }
 
           if (res.success && res.token) {
             state.token = res.token;
@@ -165,15 +200,18 @@
             localStorage.setItem('central_token', state.token);
             updateUserBadge();
             showAppShell();
-            showToast(`Signed in successfully as ${res.user.fullName || res.user.email}`, 'success');
+            showToast(`Signed in successfully as ${res.user.fullName || res.user.id}`, 'success');
             await loadInitialData();
             renderCurrentTab();
           } else {
-            throw new Error(res.error || 'Invalid credentials');
+            throw new Error(res.error || 'Authentication failed');
           }
         } catch (err) {
           if (errAlert && errText) {
-            errText.textContent = err.message || 'Invalid administrator email or password';
+            errAlert.style.background = 'rgba(239,68,68,0.12)';
+            errAlert.style.borderColor = '#ef4444';
+            errAlert.style.color = '#ef4444';
+            errText.textContent = err.message || 'Invalid User ID/Email or Password. Only credentials stored in the database are allowed.';
             errAlert.style.display = 'block';
           }
         } finally {
@@ -3573,69 +3611,132 @@ for cmd in commands:
   }
 
   // ==========================================================================
-  // 14. ADMIN & ACCESS PERMISSIONS
+  // 14. ADMIN & ACCESS PERMISSIONS (DATABASE-BACKED USERS MANAGEMENT)
   // ==========================================================================
   async function renderAdminAccess() {
     const container = document.getElementById('view-content');
     container.innerHTML = `
-      <div class="page-header">
-        <div>
-          <h1 class="page-title"><i class="fa-solid fa-user-shield" style="color: var(--accent-primary);"></i> Administrative Access & RBAC Roles</h1>
-          <div class="page-subtitle">Central management team credentials • Role-based permissions • MFA security</div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="table-responsive">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Admin Name</th>
-                <th>Email Address</th>
-                <th>System Role</th>
-                <th>MFA Status</th>
-                <th>Last Active</th>
-                <th style="text-align: right;">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><strong>Chief SaaS Executive</strong></td>
-                <td>admin@centralcommand.io</td>
-                <td><span class="badge badge-active">SUPER_ADMIN</span></td>
-                <td><span class="badge badge-healthy"><i class="fa-solid fa-shield-check"></i> Enabled</span></td>
-                <td>Active now</td>
-                <td style="text-align: right;"><button class="btn btn-secondary btn-sm" onclick="openModal('modal-auth-users')">Switch</button></td>
-              </tr>
-              <tr>
-                <td><strong>Operations Lead</strong></td>
-                <td>ops@centralcommand.io</td>
-                <td><span class="badge badge-trial">OPERATIONS_MANAGER</span></td>
-                <td><span class="badge badge-stale">Disabled</span></td>
-                <td>2 hours ago</td>
-                <td style="text-align: right;"><button class="btn btn-secondary btn-sm" onclick="openModal('modal-auth-users')">Switch</button></td>
-              </tr>
-              <tr>
-                <td><strong>Senior Billing Comptroller</strong></td>
-                <td>finance@centralcommand.io</td>
-                <td><span class="badge badge-healthy">FINANCE_OFFICER</span></td>
-                <td><span class="badge badge-stale">Disabled</span></td>
-                <td>1 day ago</td>
-                <td style="text-align: right;"><button class="btn btn-secondary btn-sm" onclick="openModal('modal-auth-users')">Switch</button></td>
-              </tr>
-              <tr>
-                <td><strong>Compliance & Security Auditor</strong></td>
-                <td>auditor@centralcommand.io</td>
-                <td><span class="badge badge-stale">AUDITOR</span></td>
-                <td><span class="badge badge-stale">Disabled</span></td>
-                <td>3 days ago</td>
-                <td style="text-align: right;"><button class="btn btn-secondary btn-sm" onclick="openModal('modal-auth-users')">Switch</button></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div style="text-align: center; padding: 3rem;">
+        <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 2rem; color: var(--accent-primary);"></i>
+        <div style="margin-top: 1rem; color: var(--text-muted);">Loading database users...</div>
       </div>
     `;
+
+    try {
+      const res = await api('/auth/users');
+      const users = res.success && Array.isArray(res.users) ? res.users : [];
+
+      container.innerHTML = `
+        <div class="page-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+          <div>
+            <h1 class="page-title"><i class="fa-solid fa-user-shield" style="color: var(--accent-primary);"></i> Database Users & Access Control</h1>
+            <div class="page-subtitle">Strict Database-Backed Authentication • Only User IDs & Passwords present in DB are allowed to log in</div>
+          </div>
+          <button class="btn btn-primary" id="btn-open-add-db-user">
+            <i class="fa-solid fa-user-plus"></i> Add User to Database
+          </button>
+        </div>
+
+        <div class="card" style="margin-bottom: 1.5rem; background: rgba(37,99,235,0.04); border: 1px solid rgba(37,99,235,0.2);">
+          <div style="display: flex; align-items: center; gap: 0.85rem; padding: 1rem 1.25rem;">
+            <div style="width: 40px; height: 40px; border-radius: 8px; background: rgba(37,99,235,0.15); display: flex; align-items: center; justify-content: center; color: var(--accent-primary); font-size: 1.25rem;">
+              <i class="fa-solid fa-database"></i>
+            </div>
+            <div>
+              <div style="font-weight: 700; font-size: 0.925rem; color: var(--text-main);">Database-Enforced Security Engine Active</div>
+              <div style="font-size: 0.78rem; color: var(--text-muted);">
+                Every login is verified strictly against the central database (<code style="color: var(--accent-primary);">users</code> table) with bcrypt hashing. Adding a user here immediately allows them to authenticate on the login screen.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>User ID (Login ID)</th>
+                  <th>Full Name</th>
+                  <th>Email Address</th>
+                  <th>System Role</th>
+                  <th>Status</th>
+                  <th>Last Login</th>
+                  <th style="text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="db-users-table-body">
+                ${users.map(u => {
+                  const roleBadgeClass = u.role === 'SUPER_ADMIN' ? 'badge-active' :
+                                         u.role === 'OPERATIONS_MANAGER' ? 'badge-trial' :
+                                         u.role === 'FINANCE_OFFICER' ? 'badge-healthy' : 'badge-stale';
+                  const isCurrent = state.currentUser && state.currentUser.id === u.id;
+                  const isRoot = u.id === 'usr-super-admin' || u.id === 'admin';
+                  return `
+                    <tr>
+                      <td>
+                        <strong style="font-family: monospace; font-size: 0.88rem; color: var(--accent-primary);">${u.id}</strong>
+                        ${isCurrent ? '<span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.65rem; margin-left: 0.35rem;">YOU</span>' : ''}
+                      </td>
+                      <td><strong>${u.fullName || '—'}</strong></td>
+                      <td style="color: var(--text-muted); font-size: 0.85rem;">${u.email}</td>
+                      <td><span class="badge ${roleBadgeClass}">${u.role}</span></td>
+                      <td><span class="badge badge-healthy"><i class="fa-solid fa-circle-check"></i> DB ACTIVE</span></td>
+                      <td style="font-size: 0.8rem; color: var(--text-muted);">${u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never logged in'}</td>
+                      <td style="text-align: right;">
+                        ${!isRoot && !isCurrent ? `
+                          <button class="btn btn-secondary btn-sm btn-delete-db-user" data-user-id="${u.id}" style="color: #ef4444; border-color: rgba(239,68,68,0.3);" title="Delete user from database">
+                            <i class="fa-solid fa-trash"></i> Delete
+                          </button>
+                        ` : `
+                          <span style="font-size: 0.72rem; color: var(--text-dim); font-style: italic;">Protected Root</span>
+                        `}
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+      // Wire up Add User button
+      document.getElementById('btn-open-add-db-user')?.addEventListener('click', () => {
+        openModal('modal-add-db-user');
+      });
+
+      // Wire up Delete User buttons
+      document.querySelectorAll('.btn-delete-db-user').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const userId = btn.getAttribute('data-user-id');
+          if (!confirm(`Are you sure you want to permanently delete user '${userId}' from the database? They will no longer be able to log in.`)) {
+            return;
+          }
+          try {
+            const delRes = await api(`/auth/users/${userId}`, { method: 'DELETE' });
+            if (delRes.success) {
+              showToast(delRes.message || `User '${userId}' deleted from database.`, 'success');
+              renderAdminAccess();
+            } else {
+              throw new Error(delRes.error || 'Failed to delete user');
+            }
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      });
+
+    } catch (err) {
+      container.innerHTML = `
+        <div class="card" style="text-align: center; padding: 3rem;">
+          <i class="fa-solid fa-triangle-exclamation" style="font-size: 2rem; color: #ef4444; margin-bottom: 1rem;"></i>
+          <div style="font-weight: 700; color: #ef4444; margin-bottom: 0.5rem;">Failed to load database users</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">${err.message}</div>
+          <button class="btn btn-secondary" onclick="renderCurrentTab()"><i class="fa-solid fa-arrows-rotate"></i> Retry</button>
+        </div>
+      `;
+    }
   }
 
   // ==========================================================================
@@ -4167,6 +4268,50 @@ CENTRAL_HMAC_SECRET=${res.data.hmacSecret}`;
         } catch (err) {
           paySubmit.disabled = false;
           paySubmit.innerHTML = origHtml;
+          showToast(err.message, 'error');
+        }
+      });
+    }
+
+    // Add New Database User Form Submission
+    const addUserSubmit = document.getElementById('btn-submit-add-db-user');
+    const addUserForm = document.getElementById('form-add-db-user');
+    if (addUserSubmit) {
+      addUserSubmit.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('new-user-id')?.value.trim();
+        const fullName = document.getElementById('new-user-fullname')?.value.trim();
+        const email = document.getElementById('new-user-email')?.value.trim();
+        const role = document.getElementById('new-user-role')?.value;
+        const password = document.getElementById('new-user-password')?.value;
+
+        if (!id || !fullName || !email || !password) {
+          showToast('Please fill all required user fields.', 'warning');
+          return;
+        }
+
+        const origHtml = addUserSubmit.innerHTML;
+        addUserSubmit.disabled = true;
+        addUserSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving to Database...';
+
+        try {
+          const res = await api('/auth/users', {
+            method: 'POST',
+            body: JSON.stringify({ id, fullName, email, role, password })
+          });
+
+          closeModal('modal-add-db-user');
+          addUserForm?.reset();
+          addUserSubmit.disabled = false;
+          addUserSubmit.innerHTML = origHtml;
+
+          showToast(`User '${res.user.id}' saved to database. They can now log in!`, 'success');
+          if (state.activeTab === 'admin') {
+            renderAdminAccess();
+          }
+        } catch (err) {
+          addUserSubmit.disabled = false;
+          addUserSubmit.innerHTML = origHtml;
           showToast(err.message, 'error');
         }
       });

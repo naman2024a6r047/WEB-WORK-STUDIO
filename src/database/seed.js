@@ -35,7 +35,7 @@ function seedDatabase(force = false) {
     // 1. Insert Administrator Users
     tx.run(
       `INSERT INTO users (id, email, password_hash, full_name, role, mfa_enabled, last_login_at) VALUES 
-      ('usr-super-admin', 'admin@centralcommand.io', ?, 'Chief SaaS Executive', 'SUPER_ADMIN', 1, datetime('now')),
+      ('usr-super-admin', 'admin@centralcommand.io', ?, 'Chief SaaS Executive', 'SUPER_ADMIN', 0, datetime('now')),
       ('usr-ops-mgr', 'ops@centralcommand.io', ?, 'Operations Lead', 'OPERATIONS_MANAGER', 0, datetime('now')),
       ('usr-finance-off', 'finance@centralcommand.io', ?, 'Senior Billing Comptroller', 'FINANCE_OFFICER', 0, datetime('now')),
       ('usr-sec-auditor', 'auditor@centralcommand.io', ?, 'Compliance & Security Auditor', 'AUDITOR', 0, datetime('now'))`,

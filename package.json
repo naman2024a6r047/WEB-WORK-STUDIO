@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node --experimental-sqlite src/server.js",
-    "seed": "node --experimental-sqlite src/database/seed.js",
+    "start": "node index.js",
+    "seed": "node src/database/seed.js",
     "test": "node tests/run_all_tests.js",
     "migrate:hostinger": "node src/database/migrate-to-hostinger.js"
   },
